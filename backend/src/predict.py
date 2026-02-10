@@ -3,7 +3,7 @@ import tensorflow as tf
 from src.registry import ModelRegistry
 from src.preprocess import prepare_inference_data
 
-def predict_with_uncertainty(model, X, n_iter=10):
+def predict_with_uncertainty(model, X, n_iter=50):
     """
     Run Monte Carlo Dropout to get prediction distribution.
     
@@ -38,7 +38,7 @@ def predict_with_uncertainty(model, X, n_iter=10):
     
     return mean_pred, lower_bound, upper_bound
 
-def get_latest_prediction(coin, df, n_iter=10):
+def get_latest_prediction(coin, df, n_iter=50):
     """
     Loads latest model, prepares data, and runs prediction.
     

@@ -115,99 +115,123 @@ def fetch_klines(symbol, interval=None, limit=500): # interval default handled i
     elif interval == Client.KLINE_INTERVAL_15MINUTE:
         mock_interval = '15m'
 
-import yfinance as yf
-
-def fetch_klines(symbol, interval=None, limit=500):
+def fetch_klines(symbol, interval=None, limit=500): # interval default handled inside
     """
-    Fetch historical data using Yahoo Finance (No blocked regions).
-    Symbol format: BTC-USD, ETH-USD
+    Fetch historical klines (candlestick data) for a symbol.
+    Uses Binance API if available. 
+    If Direct Pair fails, falls back to BTCUSDT * ConversionRate.
     """
-    # Convert Binance symbol (BTCUSDT) to Yahoo symbol (BTC-USD)
-    if symbol.endswith("USDT"):
-        y_symbol = f"{symbol[:-4]}-USD"
-    elif symbol.endswith("USD"):
-        y_symbol = f"{symbol[:-3]}-USD"
-    else:
-        y_symbol = f"{symbol}-USD"
+    client = get_binance_client()
+    
+    # Default interval if not passed
+    binance_interval = interval
+    mock_interval = '1d'
 
-    try:
-        # Map interval
-        # yfinance supports: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-        y_interval = "1d"
-        if interval == Client.KLINE_INTERVAL_1HOUR:
-            y_interval = "1h"
-        elif interval == Client.KLINE_INTERVAL_15MINUTE:
-            y_interval = "15m"
+    if interval is None:
+        binance_interval = Client.KLINE_INTERVAL_1DAY
+    elif interval == Client.KLINE_INTERVAL_1HOUR:
+        mock_interval = '1h'
+    elif interval == Client.KLINE_INTERVAL_15MINUTE:
+        mock_interval = '15m'
 
-        # Fetch data
-        # limit=500 -> ~2 years for daily
-        period = "2y" 
-        if y_interval == "1h":
-            period = "1mo" # Hourly data is limited
-        elif y_interval == "15m":
-            period = "5d"
+    if client:
+        try:
+            # 1. Try Direct Pair (e.g. BTCEUR)
+            klines = client.get_klines(symbol=symbol, interval=binance_interval, limit=limit)
+            
+            cols = [
+                'open_time', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_asset_volume', 'number_of_trades',
+                'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+            ]
+            
+            df = pd.DataFrame(klines, columns=cols)
+            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+            df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
+            
+            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+            df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
+            
+            df.set_index('open_time', inplace=True)
+            df = df[['close', 'open', 'high', 'low', 'volume']]
+            df['source'] = 'Binance Direct'
+            return df
+            
+        except Exception as e:
+            # 2. Fallback: Try Base+USDT and convert
+            # Only if error suggests invalid symbol and it's not already USDT
+            if "Invalid symbol" in str(e) and not symbol.endswith("USDT"):
+                # Guess Base and Quote
+                # Most quotes are 3 chars (EUR, INR, GBP). USDT is 4.
+                # If we are here, it's likely a 3-char quote like 'INR'.
+                quote = symbol[-3:] 
+                base = symbol[:-3]
+                
+                start_symbol = f"{base}USDT"
+                try:
+                    # Fetch USDT Pair (Recursively to handle mocking if needed, but usually we want real data)
+                    # We call client.get_klines directly to avoid infinite recursion quirks or ambiguity
+                    klines = client.get_klines(symbol=start_symbol, interval=binance_interval, limit=limit)
+                    
+                    cols = [
+                        'open_time', 'open', 'high', 'low', 'close', 'volume',
+                        'close_time', 'quote_asset_volume', 'number_of_trades',
+                        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+                    ]
+                    df = pd.DataFrame(klines, columns=cols)
+                    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+                    numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+                    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
+                    df.set_index('open_time', inplace=True)
+                    df = df[['close', 'open', 'high', 'low', 'volume']]
+                    
+                    # Convert to Target Currency
+                    rate = get_conversion_rate(quote)
+                    df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']] * rate
+                    # Volume is in Base Asset (BTC), so it stays same? 
+                    # Binance "volume" is usually Base Asset Volume. "quote_asset_volume" is Quote.
+                    # We keep volume as is (Base Asset amount).
+                    
+                    df['source'] = f'Binance Converted ({start_symbol} -> {quote})'
+                    return df
+                    
+                except Exception as e2:
+                    print(f"Fallback to {start_symbol} failed: {e2}")
+            else:
+                 print(f"Binance API error for {symbol}: {e}")
 
-        print(f"Fetching {y_symbol} from Yahoo Finance ({y_interval})...")
-        ticker = yf.Ticker(y_symbol)
-        df = ticker.history(period=period, interval=y_interval)
-
-        if df.empty:
-            raise Exception("Empty dataframe from Yahoo")
-
-        # Standardize columns
-        df = df.reset_index()
-        # Yahoo columns: Date, Open, High, Low, Close, Volume, Dividends, Stock Splits
-        # Rename 'Date' or 'Datetime' to 'open_time'
-        if 'Date' in df.columns:
-            df.rename(columns={'Date': 'open_time'}, inplace=True)
-        elif 'Datetime' in df.columns:
-            df.rename(columns={'Datetime': 'open_time'}, inplace=True)
-
-        # Ensure UTC and remove timezone for compatibility
-        df['open_time'] = pd.to_datetime(df['open_time']).dt.tz_localize(None)
-
-        df.set_index('open_time', inplace=True)
-        df = df[['Close', 'Open', 'High', 'Low', 'Volume']]
-        df.columns = ['close', 'open', 'high', 'low', 'volume'] # Lowercase
-        
-        df['source'] = 'Yahoo Finance'
-        
-        # Filter to limit
-        if len(df) > limit:
-            df = df.iloc[-limit:]
-
-        return df
-
-    except Exception as e:
-        print(f"Yahoo Finance failed for {symbol}: {e}")
-        # Fallback to Mock
-        return generate_mock_data(symbol, interval='1d', limit=limit)
+            # Fall through to mock data
+            
+    # Final Fallback: Mock
+    df = generate_mock_data(symbol, interval=mock_interval, limit=limit)
+    df['source'] = 'Mock'
+    return df
 
 def get_current_price(symbol):
     """
-    Fetch latest price from Yahoo Finance.
+    Fetch the absolute latest price for a symbol.
+    Prioritizes direct pair, but handles missing pairs gracefully by converting from USDT.
     """
-    # Convert matches standard logic
-    if symbol.endswith("USDT"):
-        y_symbol = f"{symbol[:-4]}-USD"
-    else:
-        y_symbol = f"{symbol}-USD"
-
-    try:
-        ticker = yf.Ticker(y_symbol)
-        # fast_info is often faster than history
-        price = ticker.fast_info.last_price
-        if price:
-            return float(price)
-            
-        # Fallback to history
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            return float(hist['Close'].iloc[-1])
-            
-    except Exception as e:
-        print(f"Yahoo Price check failed: {e}")
-        
+    client = get_binance_client()
+    if client:
+        try:
+            # 1. Try Direct
+            ticker = client.get_symbol_ticker(symbol=symbol)
+            return float(ticker['price'])
+        except Exception as e:
+            # 2. Fallback
+            if "Invalid symbol" in str(e) and not symbol.endswith("USDT"):
+                quote = symbol[-3:]
+                base = symbol[:-3]
+                try:
+                    ticker = client.get_symbol_ticker(symbol=f"{base}USDT")
+                    usdt_price = float(ticker['price'])
+                    rate = get_conversion_rate(quote)
+                    return usdt_price * rate
+                except:
+                    pass
+            # print(f"Error fetching current price for {symbol}: {e}")
+            pass
     return None
 
 def get_live_rate(target_currency):
