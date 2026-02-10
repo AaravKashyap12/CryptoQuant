@@ -43,20 +43,24 @@ function App() {
   };
 
   const setRefreshData = async (coin) => {
+    // 1. Load Market Data immediately (Fast)
     try {
-      const [mData, predData, valData] = await Promise.all([
-        getMarketData(coin),
+      const mData = await getMarketData(coin);
+      setMarketData(mData);
+      setLoading(false); // Creating specific loading state for chart vs prediction would be better, but this unblocks the view
+
+      // 2. Load AI Predictions (Slow)
+      // We do this separately so the chart shows up while the AI "thinks"
+      const [predData, valData] = await Promise.all([
         getPrediction(coin),
         getValidation(coin).catch(e => null)
       ]);
 
-      setMarketData(mData);
       setPrediction(predData);
       setValidation(valData);
     } catch (e) {
       console.error("Data Error", e);
-    } finally {
-      setLoading(false);
+      setLoading(false); // Ensure loading stops on error
     }
   }
 
