@@ -10,7 +10,10 @@ app = FastAPI(
 
 # CORS Code
 origins = [
-    "*", # Allow all domains (Vercel, Localhost, etc.)
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://crypto-quant-orcin.vercel.app", # Explicit Vercel Domain
+    "*", # Fallback
 ]
 
 app.add_middleware(
