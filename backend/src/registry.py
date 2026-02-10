@@ -5,6 +5,9 @@ from datetime import datetime
 
 MODELS_DIR = "models"
 
+# Global cache to persist across requests
+_MODEL_CACHE = {}
+
 class ModelRegistry:
     def __init__(self, base_dir=MODELS_DIR):
         self.base_dir = base_dir
@@ -21,13 +24,12 @@ class ModelRegistry:
         if not versions:
             return "v0.0.0"
             
-        # simple sort by string, improved would be semantic versioning sort
+        # simple sort by string
         versions.sort() 
         return versions[-1]
         
     def _increment_version(self, version):
         """Simple patch increment."""
-        # v1.0.0 -> v1.0.1
         major, minor, patch = map(int, version[1:].split('.'))
         return f"v{major}.{minor}.{patch+1}"
         
@@ -66,17 +68,25 @@ class ModelRegistry:
         return new_version
 
     def load_latest_model(self, coin):
-        """Loads the latest model and scalers for a coin."""
+        """Loads the latest model and scalers for a coin (with caching)."""
         latest = self.get_latest_version(coin)
         if latest == "v0.0.0":
             return None, None, None, None
+            
+        # Check Cache
+        cache_key = f"{coin}_{latest}"
+        if cache_key in _MODEL_CACHE:
+            print(f"Loading {coin} model from CACHE ⚡")
+            return _MODEL_CACHE[cache_key]
             
         load_dir = os.path.join(self.base_dir, coin, latest)
         
         try:
             from tensorflow.keras.models import load_model
             
-            # Load Model with custom objects if any (none yet)
+            print(f"Loading {coin} model from DISK 💾")
+            
+            # Load Model
             model = load_model(os.path.join(load_dir, "model.keras"))
             
             # Load Scalers
@@ -86,6 +96,9 @@ class ModelRegistry:
             # Load Metadata
             with open(os.path.join(load_dir, "metadata.json"), "r") as f:
                 metadata = json.load(f)
+                
+            # Store in Cache
+            _MODEL_CACHE[cache_key] = (model, scaler, target_scaler, metadata)
                 
             return model, scaler, target_scaler, metadata
             
