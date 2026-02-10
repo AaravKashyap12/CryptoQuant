@@ -21,6 +21,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def read_root():
+    return {"message": "CryptoQuant API is running! 🚀", "docs_url": "/docs"}
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "message": "Backend is running 🚀"}
