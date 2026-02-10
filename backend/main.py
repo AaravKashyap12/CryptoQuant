@@ -10,10 +10,7 @@ app = FastAPI(
 
 # CORS Code
 origins = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:5173", # Vite default
-    "http://127.0.0.1:5173", # Vite alternative
+    "*", # Allow all domains (Vercel, Localhost, etc.)
 ]
 
 app.add_middleware(
