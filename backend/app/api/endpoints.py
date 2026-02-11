@@ -42,27 +42,34 @@ def predict_coin(coin: str):
     if coin not in COINS:
         raise HTTPException(status_code=404, detail="Coin not supported")
         
-    symbol = f"{coin}USDT"
-    
-    # Fetch recent data for inference
-    df = fetch_klines(symbol, limit=500)
-    if df is None:
-        raise HTTPException(status_code=500, detail="Failed to fetch data needed for prediction")
+    try:
+        # Fetch recent data for inference
+        df = fetch_klines(symbol, limit=500)
+        if df is None:
+            raise HTTPException(status_code=500, detail="Failed to fetch data needed for prediction")
         
-    result = get_latest_prediction(symbol, df)
-    
-    if result is None:
-        raise HTTPException(status_code=404, detail="Model not found or prediction failed")
+        # Log data shape for debugging
+        print(f"DEBUG: Fetched {len(df)} rows for {symbol} from {df.iloc[-1].get('source', 'Unknown')}")
         
-    return {
-        "coin": coin,
-        "forecast": {
-            "mean": result['mean'].tolist(),
-            "lower": result['lower'].tolist(),
-            "upper": result['upper'].tolist()
-        },
-        "metadata": result['metadata']
-    }
+        result = get_latest_prediction(symbol, df)
+        
+        if result is None:
+            raise HTTPException(status_code=404, detail="Model not found or prediction failed")
+            
+        return {
+            "coin": coin,
+            "forecast": {
+                "mean": result['mean'].tolist(),
+                "lower": result['lower'].tolist(),
+                "upper": result['upper'].tolist()
+            },
+            "metadata": result['metadata']
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc() # Print to server logs
+        print(f"CRITICAL ERROR in /predict: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prediction Error: {str(e)}")
 
 @router.get("/metrics/{coin}")
 def get_model_metrics(coin: str):
