@@ -7,7 +7,7 @@ numpy<2.0.0
 tensorflow-cpu # Or tensorflow
 scikit-learn
 plotly
-pandas-ta
+pandas_ta
 python-binance
 joblib
 yfinance
