@@ -23,5 +23,5 @@ RUN pip install --upgrade pip && \
 COPY backend/ .
 
 # Expose port (railway/fly dynamic port binding usually handles this, but 8000 is standard)
-# CMD ["./start.sh"]
-CMD ["python", "main.py"]
+# CMD ["python", "main.py"]
+CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
