@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-    """
-    Adds technical indicators to the DataFrame using pure pandas/numpy.
+
+def add_technical_indicators(df):
     Expects columns: 'open', 'high', 'low', 'close', 'volume'.
     """
     # Ensure all columns are lowercase
