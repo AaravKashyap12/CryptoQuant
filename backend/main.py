@@ -12,14 +12,15 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://crypto-quant-orcin.vercel.app", # Explicit Vercel Domain
-    "*", # Fallback
+    "https://cryptoquant.vercel.app", # Explicit Vercel Domain
+    "https://crypto-quant-orcin.vercel.app", # Previous Vercel Domain (just in case)
+    "*", # Allow all for now during debug, but specific domains above are preferred
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow ALL origins
-    allow_credentials=False, # Disable credentials (cookies) to allow wildcard
+    allow_origins=origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
