@@ -304,6 +304,27 @@ def get_current_price(symbol):
                     pass
             # print(f"Error fetching current price for {symbol}: {e}")
             pass
+            
+    # 3. Fallback to Yahoo Finance (Real Data backup)
+    try:
+        import yfinance as yf
+        y_symbol = f"{symbol.replace('USDT', '')}-USD"
+        ticker = yf.Ticker(y_symbol)
+        
+        # 'fast_info' is faster than 'history'
+        price = ticker.fast_info.last_price
+        if price:
+            return float(price)
+            
+        # Fallback to history if fast_info fails
+        hist = ticker.history(period="1d")
+        if not hist.empty:
+            return float(hist['Close'].iloc[-1])
+            
+    except Exception as e:
+        print(f"Yahoo Price Fetch Failed: {e}")
+        pass
+        
     return None
 
 def get_live_rate(target_currency):

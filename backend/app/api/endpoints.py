@@ -32,6 +32,12 @@ def get_market_data(coin: str, limit: int = 100):
         
     # Convert to JSON-compatible format
     df.reset_index(inplace=True) # Make timestamp a column
+    
+    # Ensure date is UNIX timestamp (ms) to avoid JS parsing issues ("Invalid Date")
+    import numpy as np
+    if 'open_time' in df.columns:
+        df['open_time'] = df['open_time'].astype(np.int64) // 10**6
+        
     return df.to_dict(orient="records")
 
 @router.post("/predict/{coin}")
