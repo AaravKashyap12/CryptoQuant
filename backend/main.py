@@ -27,7 +27,12 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "CryptoQuant API is running! 🚀", "docs_url": "/docs"}
+    return {
+        "status": "online",
+        "message": "Crypto Price Predictor API",
+        "version": "v1.1.0-fix-symbol",
+        "last_updated": "2026-02-11T17:30:00"
+    }
 
 @app.get("/health")
 def health_check():
