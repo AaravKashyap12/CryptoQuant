@@ -19,8 +19,8 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"], # Allow ALL origins
+    allow_credentials=False, # Must be False for wildcard origin
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -30,13 +30,13 @@ def read_root():
     return {
         "status": "online",
         "message": "Crypto Price Predictor API",
-        "version": "v1.1.0-fix-symbol",
-        "last_updated": "2026-02-11T17:30:00"
+        "version": "v1.2.0-cors-fix",
+        "last_updated": "2026-02-11T18:00:00"
     }
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "message": "Backend is running 🚀"}
+    return {"status": "ok", "message": "Backend is running \U0001F680"}
 
 from app.api import endpoints
 
@@ -46,13 +46,6 @@ app.include_router(endpoints.router, prefix="/api/v1")
 async def startup_event():
     """
     Server Startup:
-    Auto-Pilot is DISABLED by default to prevent OOM on free tier.
-    To enable: uncomment the training loop below or use the /train endpoint manually.
+    Auto-Pilot is DISABLED by default. Use /train endpoint manually.
     """
     print(" [INFO] Server starting... Auto-train disabled for stability.")
-
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
