@@ -41,6 +41,8 @@ def predict_coin(coin: str):
     """
     if coin not in COINS:
         raise HTTPException(status_code=404, detail="Coin not supported")
+
+    symbol = f"{coin}USDT"
         
     try:
         # Fetch recent data for inference
