@@ -45,25 +45,8 @@ app.include_router(endpoints.router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     """
-    On startup, trigger a background task to retrain models if they are missing or old.
-    This ensures the app is always "fresh" without manual scripts.
+    Server Startup:
+    Auto-Pilot is DISABLED by default to prevent OOM on free tier.
+    To enable: uncomment the training loop below or use the /train endpoint manually.
     """
-    import threading
-    import time
-    from src.train_model import train_single_coin
-    
-    def training_loop():
-        while True:
-            print(" [AUTO-TRAIN] Starting daily model update... ")
-            coins = ["BTC", "ETH", "BNB", "SOL", "ADA"]
-            for coin in coins:
-                try:
-                    train_single_coin(f"{coin}USDT")
-                except Exception as e:
-                    print(f" [AUTO-TRAIN] Failed {coin}: {e}")
-            print(" [AUTO-TRAIN] Complete. Serving fresh models. Sleeping for 24 hours...")
-            time.sleep(86400) # 24 Hours
-        
-    # Start in background thread
-    train_thread = threading.Thread(target=training_loop, daemon=True)
-    train_thread.start()
+    print(" [INFO] Server starting... Auto-train disabled for stability.")
