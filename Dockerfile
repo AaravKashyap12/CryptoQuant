@@ -23,11 +23,5 @@ RUN pip install --upgrade pip && \
 COPY backend/ .
 
 # Expose port (railway/fly dynamic port binding usually handles this, but 8000 is standard)
-EXPOSE 8000
-
-# Run the application
-# Install start script
-COPY start.sh .
-RUN chmod +x start.sh
-
-CMD ["./start.sh"]
+# CMD ["./start.sh"]
+CMD ["python", "main.py"]
