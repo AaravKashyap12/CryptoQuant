@@ -7,15 +7,24 @@ const api = axios.create({
     },
 });
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1';
+
 export const getCoins = async () => {
     const response = await api.get('/coins');
     return response.data;
 };
 
-export const getMarketData = async (coin) => {
-    const response = await api.get(`/market-data/${coin}`);
-    return response.data;
-};
+export async function getMarketData(coin, limit = 100) {
+    try {
+        // Add cache buster to force fresh data
+        const res = await fetch(`${API_BASE_URL}/market-data/${coin}?limit=${limit}&t=${Date.now()}`);
+        if (!res.ok) throw new Error("Failed to fetch market data");
+        return await res.json();
+    } catch (error) {
+        console.error("API Error:", error);
+        return [];
+    }
+}
 
 export const getPrediction = async (coin) => {
     // Post request but no body needed for now as per backend implementation
