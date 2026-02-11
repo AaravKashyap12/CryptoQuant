@@ -278,3 +278,41 @@ def system_diagnostics():
         report["steps"]["model_registry"] = {"status": "failed", "error": str(e)}
         
     return report
+
+@router.get("/debug/data/{coin}")
+def debug_data_values(coin: str):
+    """
+    Inspect the raw data values to debug 1970 date issue.
+    """
+    symbol = f"{coin}USDT"
+    df = fetch_klines(symbol, limit=5)
+    
+    if df is None:
+        return {"error": "Could not fetch data"}
+        
+    debug_info = {
+        "source": df.iloc[-1].get('source', 'unknown') if 'source' in df.columns else 'unknown',
+        "index_name": df.index.name,
+        "index_dtype": str(df.index.dtype),
+        "sample_index": str(df.index[0]),
+        "columns": list(df.columns)
+    }
+    
+    # Test Conversion Logic
+    df_test = df.copy()
+    df_test.index.name = "open_time"
+    df_test.reset_index(inplace=True)
+    
+    debug_info["col_dtype_before"] = str(df_test['open_time'].dtype)
+    debug_info["val_before_0"] = str(df_test['open_time'].iloc[0])
+    
+    # Perform conversion exactly as in market-data
+    import numpy as np
+    try:
+        converted = df_test['open_time'].astype(np.int64) // 10**6
+        debug_info["val_after_0"] = int(converted.iloc[0])
+        debug_info["expected_year"] = pd.to_datetime(converted.iloc[0], unit='ms').year
+    except Exception as e:
+        debug_info["conversion_error"] = str(e)
+        
+    return debug_info
