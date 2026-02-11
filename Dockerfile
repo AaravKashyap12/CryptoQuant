@@ -26,4 +26,8 @@ COPY backend/ .
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "main.py"]
+# Install start script
+COPY start.sh .
+RUN chmod +x start.sh
+
+CMD ["./start.sh"]
