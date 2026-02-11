@@ -50,3 +50,9 @@ async def startup_event():
     To enable: uncomment the training loop below or use the /train endpoint manually.
     """
     print(" [INFO] Server starting... Auto-train disabled for stability.")
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
