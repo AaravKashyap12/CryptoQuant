@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import List, Optional
 import pandas as pd
 from src.data_fetcher import fetch_klines
@@ -115,3 +115,19 @@ def validate_model(coin: str, days: int = 30):
         raise HTTPException(status_code=400, detail=history["error"])
         
     return history
+
+@router.post("/train/{coin}")
+def train_model_endpoint(coin: str, background_tasks: BackgroundTasks):
+    """
+    Trigger a model retrain command for a specific coin.
+    Processed in background to prevent timeouts.
+    """
+    if coin not in COINS:
+        raise HTTPException(status_code=404, detail="Coin not supported")
+        
+    from src.train_model import train_single_coin
+    
+    # Add to background tasks
+    background_tasks.add_task(train_single_coin, f"{coin}USDT")
+    
+    return {"status": "processing", "message": f"Training started for {coin}. Check back in 1-2 minutes."}
