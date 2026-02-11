@@ -115,95 +115,164 @@ def fetch_klines(symbol, interval=None, limit=500): # interval default handled i
     elif interval == Client.KLINE_INTERVAL_15MINUTE:
         mock_interval = '15m'
 
-def fetch_klines(symbol, interval=None, limit=500): # interval default handled inside
+import requests
+import time
+
+def fetch_from_coingecko(symbol, days=30):
     """
-    Fetch historical klines (candlestick data) for a symbol.
-    Uses Binance API if available. 
-    If Direct Pair fails, falls back to BTCUSDT * ConversionRate.
+    Fetch historical data from CoinGecko (Free, no API key required for basic).
+    Symbol mapping: BTCUSDT -> bitcoin, ETHUSDT -> ethereum
     """
-    client = get_binance_client()
+    # Basic mapping
+    mapping = {
+        "BTCUSDT": "bitcoin",
+        "ETHUSDT": "ethereum",
+        "BNBUSDT": "binancecoin",
+        "SOLUSDT": "solana",
+        "ADAUSDT": "cardano",
+        "DOGEUSDT": "dogecoin",
+        "XRPUSDT": "ripple"
+    }
     
-    # Default interval if not passed
-    binance_interval = interval
-    mock_interval = '1d'
+    coin_id = mapping.get(symbol)
+    if not coin_id:
+        return None
+        
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+        params = {
+            "vs_currency": "usd",
+            "days": days, 
+            "interval": "daily"
+        }
+        
+        # CoinGecko has strict rate limits, so we add a small delay/backoff check ideally
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            print(f"CoinGecko Failed: {r.status_code}")
+            return None
+            
+        data = r.json()
+        prices = data.get('prices', [])
+        
+        if not prices:
+            return None
+            
+        # Convert to DataFrame
+        # CoinGecko returns [timestamp, price]
+        df = pd.DataFrame(prices, columns=['open_time', 'close'])
+        df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+        
+        # CoinGecko Hourly/Daily data lacks OHLC for free tier market_chart endpoint (it offers price only usually)
+        # But we can approximate OHL from the close stream or just set them equal for basic display
+        # Actually, for "market_chart" range < 90 days it's hourly, > 90 days it's daily.
+        
+        # Better approach: Use OHLC endpoint? (Requires Pro for > 1 day usually, restricted)
+        # We will use Close price and simulate OHL for the display if needed, OR just return Close.
+        # But our features.py needs High/Low/Volume.
+        
+        # Let's try OHLC endpoint (Free tier allows 1-7 days usually)
+        # url_ohlc = f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc"
+        # params_ohlc = {"vs_currency": "usd", "days": days}
+        
+        # Actually, let's use Yahoo Finance as 2nd valid source before Mock.
+        return None # Skip CoinGecko for OHLC complex needs, jump to Yahoo.
+        
+    except Exception as e:
+        print(f"CoinGecko error: {e}")
+        return None
 
-    if interval is None:
-        binance_interval = Client.KLINE_INTERVAL_1DAY
-    elif interval == Client.KLINE_INTERVAL_1HOUR:
-        mock_interval = '1h'
-    elif interval == Client.KLINE_INTERVAL_15MINUTE:
-        mock_interval = '15m'
+def fetch_from_yahoo(symbol, limit=500):
+    """
+    Fetch from Yahoo Finance using yfinance.
+    """
+    try:
+        import yfinance as yf
+        # Map BTCUSDT -> BTC-USD
+        y_symbol = f"{symbol.replace('USDT', '')}-USD"
+        
+        # Determine period
+        period = "2y" if limit > 60 else "3mo"
+        
+        ticker = yf.Ticker(y_symbol)
+        df = ticker.history(period=period, interval="1d")
+        
+        if df.empty:
+            return None
+            
+        df = df.reset_index()
+        # Columns: Date, Open, High, Low, Close, Volume
+        # Rename entries
+        col_map = {
+            "Date": "open_time",
+            "Datetime": "open_time",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume"
+        }
+        df.rename(columns=col_map, inplace=True)
+        
+        # timezone fix
+        if 'open_time' in df.columns:
+             df['open_time'] = pd.to_datetime(df['open_time']).dt.tz_localize(None)
+             
+        df.set_index('open_time', inplace=True)
+        df = df[['close', 'open', 'high', 'low', 'volume']]
+        df['source'] = 'Yahoo Finance'
+        
+        if len(df) > limit:
+            df = df.iloc[-limit:]
+            
+        return df
+        
+    except Exception as e:
+        print(f"Yahoo fetch failed: {e}")
+        return None
 
-    if client:
-        try:
-            # 1. Try Direct Pair (e.g. BTCEUR)
+def fetch_klines(symbol, interval=None, limit=500): 
+    """
+    Robust Multi-Source Fetcher:
+    1. Binance (Best data)
+    2. Yahoo Finance (Reliable backup)
+    3. Mock (Last resort)
+    """
+    # 1. Try Binance
+    try:
+        client = get_binance_client()
+        if client:
+            # Default logic from before...
+            binance_interval = interval or Client.KLINE_INTERVAL_1DAY
             klines = client.get_klines(symbol=symbol, interval=binance_interval, limit=limit)
             
-            cols = [
-                'open_time', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_asset_volume', 'number_of_trades',
-                'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-            ]
-            
+            # ... (Parse klines code) ...
+            cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'q', 'n', 'tb', 'tq', 'i']
             df = pd.DataFrame(klines, columns=cols)
             df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-            df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
             
             numeric_cols = ['open', 'high', 'low', 'close', 'volume']
             df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
             
             df.set_index('open_time', inplace=True)
             df = df[['close', 'open', 'high', 'low', 'volume']]
-            df['source'] = 'Binance Direct'
+            df['source'] = 'Binance'
             return df
-            
-        except Exception as e:
-            # 2. Fallback: Try Base+USDT and convert
-            # Only if error suggests invalid symbol and it's not already USDT
-            if "Invalid symbol" in str(e) and not symbol.endswith("USDT"):
-                # Guess Base and Quote
-                # Most quotes are 3 chars (EUR, INR, GBP). USDT is 4.
-                # If we are here, it's likely a 3-char quote like 'INR'.
-                quote = symbol[-3:] 
-                base = symbol[:-3]
-                
-                start_symbol = f"{base}USDT"
-                try:
-                    # Fetch USDT Pair (Recursively to handle mocking if needed, but usually we want real data)
-                    # We call client.get_klines directly to avoid infinite recursion quirks or ambiguity
-                    klines = client.get_klines(symbol=start_symbol, interval=binance_interval, limit=limit)
-                    
-                    cols = [
-                        'open_time', 'open', 'high', 'low', 'close', 'volume',
-                        'close_time', 'quote_asset_volume', 'number_of_trades',
-                        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-                    ]
-                    df = pd.DataFrame(klines, columns=cols)
-                    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-                    numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-                    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
-                    df.set_index('open_time', inplace=True)
-                    df = df[['close', 'open', 'high', 'low', 'volume']]
-                    
-                    # Convert to Target Currency
-                    rate = get_conversion_rate(quote)
-                    df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']] * rate
-                    # Volume is in Base Asset (BTC), so it stays same? 
-                    # Binance "volume" is usually Base Asset Volume. "quote_asset_volume" is Quote.
-                    # We keep volume as is (Base Asset amount).
-                    
-                    df['source'] = f'Binance Converted ({start_symbol} -> {quote})'
-                    return df
-                    
-                except Exception as e2:
-                    print(f"Fallback to {start_symbol} failed: {e2}")
-            else:
-                 print(f"Binance API error for {symbol}: {e}")
+    except Exception as e:
+        print(f"Binance Blocked/Error: {e}")
+        pass
 
-            # Fall through to mock data
-            
-    # Final Fallback: Mock
-    df = generate_mock_data(symbol, interval=mock_interval, limit=limit)
+    # 2. Try Yahoo Finance (Backup)
+    # Only if interval is Daily (Yahoo 1d or 1h is okay, but we focus on 1d for prediction)
+    if interval is None or interval == Client.KLINE_INTERVAL_1DAY:
+        print(f"Falling back to Yahoo Finance for {symbol}...")
+        df_yahoo = fetch_from_yahoo(symbol, limit)
+        if df_yahoo is not None:
+            return df_yahoo
+
+    # 3. Fallback to Mock
+    print(f"All APIs failed. Using Mock Data for {symbol}.")
+    df = generate_mock_data(symbol, interval='1d', limit=limit)
     df['source'] = 'Mock'
     return df
 
