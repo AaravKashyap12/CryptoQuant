@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import List, Optional
 import pandas as pd
 from src.data_fetcher import fetch_klines
-from src.predict import get_latest_prediction
+# from src.predict import get_latest_prediction (Keep import commented out or removed)
 from src.registry import ModelRegistry
 
 router = APIRouter()
@@ -61,6 +61,7 @@ def predict_coin(coin: str):
     symbol = f"{coin}USDT"
         
     try:
+        from src.predict import get_latest_prediction
         # Fetch recent data for inference
         df = fetch_klines(symbol, limit=500)
         if df is None:
