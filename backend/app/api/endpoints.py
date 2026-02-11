@@ -229,6 +229,38 @@ def system_diagnostics():
                 model, _, _, _ = registry.load_latest_model("BTCUSDT")
                 if model:
                      report["steps"]["model_load"] = {"status": "ok"}
+                     
+                     # 5. Test Inference (The Real Test)
+                     try:
+                         # Create Dummy Data (matches Mock data structure)
+                         import pandas as pd
+                         import numpy as np
+                         from src.predict import predict_with_uncertainty
+                         from src.preprocess import prepare_inference_data
+                         
+                         dates = pd.date_range(end=pd.Timestamp.now(), periods=100, freq='D')
+                         dummy_df = pd.DataFrame({
+                             'open_time': dates,
+                             'open': np.random.rand(100) * 1000,
+                             'high': np.random.rand(100) * 1000,
+                             'low': np.random.rand(100) * 1000,
+                             'close': np.random.rand(100) * 1000,
+                             'volume': np.random.rand(100) * 10000
+                         })
+                         dummy_df.set_index('open_time', inplace=True)
+                         
+                         # Preprocess
+                         X_input = prepare_inference_data(dummy_df, scaler=registry.load_latest_model("BTCUSDT")[1], lookback=60)
+                         report["steps"]["preprocess"] = {"status": "ok", "shape": str(X_input.shape)}
+                         
+                         # Predict
+                         mean, _, _ = predict_with_uncertainty(model, X_input, n_iter=2)
+                         report["steps"]["inference"] = {"status": "ok", "output_shape": str(mean.shape)}
+                         
+                     except Exception as e:
+                         import traceback
+                         report["steps"]["inference"] = {"status": "failed", "error": str(e), "trace": traceback.format_exc()}
+                         
                 else:
                      report["steps"]["model_load"] = {"status": "failed_return_none"}
             except Exception as e:
