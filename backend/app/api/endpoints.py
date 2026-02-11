@@ -31,10 +31,13 @@ def get_market_data(coin: str, limit: int = 100):
         raise HTTPException(status_code=500, detail="Failed to fetch data from Binance")
         
     # Convert to JSON-compatible format
+    # Ensure index is named "open_time" so it becomes a column with that name
+    df.index.name = "open_time"
     df.reset_index(inplace=True) # Make timestamp a column
     
     # Ensure date is UNIX timestamp (ms) to avoid JS parsing issues ("Invalid Date")
     import numpy as np
+    # Convert 'open_time' column (which we just created) to int64 milliseconds
     if 'open_time' in df.columns:
         df['open_time'] = df['open_time'].astype(np.int64) // 10**6
         
