@@ -144,6 +144,7 @@ def get_training_status(coin: str):
     registry = ModelRegistry()
     latest_version = registry.get_latest_version(f"{coin}USDT")
     
+    
     if latest_version == "v0.0.0":
         return {"status": "not_trained", "version": None, "timestamp": None}
         
@@ -170,3 +171,69 @@ def get_training_status(coin: str):
         pass
         
     return {"status": "unknown", "version": latest_version}
+
+@router.get("/debug/system")
+def system_diagnostics():
+    """
+    Run a self-test of the system components.
+    """
+    report = {"status": "ok", "steps": {}}
+    
+    # 1. System Info
+    import sys
+    import platform
+    report["steps"]["system"] = {
+        "python": sys.version,
+        "platform": platform.platform()
+    }
+    
+    # 2. TensorFlow Check
+    try:
+        import tensorflow as tf
+        report["steps"]["tensorflow"] = {
+            "status": "ok", 
+            "version": tf.__version__,
+            "gpu_available": len(tf.config.list_physical_devices('GPU')) > 0
+        }
+    except Exception as e:
+        report["steps"]["tensorflow"] = {"status": "failed", "error": str(e)}
+        report["status"] = "degraded"
+        
+    # 3. Data Fetcher Check
+    try:
+        from src.data_fetcher import fetch_klines
+        df = fetch_klines("BTCUSDT", limit=10)
+        if df is not None:
+             report["steps"]["data_fetcher"] = {
+                 "status": "ok", 
+                 "source": df.iloc[-1].get('source', 'unknown'),
+                 "rows": len(df)
+             }
+        else:
+             report["steps"]["data_fetcher"] = {"status": "failed", "error": "returned None"}
+             report["status"] = "degraded"
+    except Exception as e:
+        report["steps"]["data_fetcher"] = {"status": "failed", "error": str(e)}
+        report["status"] = "degraded"
+        
+    # 4. Model Registry Check
+    try:
+        from src.registry import ModelRegistry
+        registry = ModelRegistry()
+        v = registry.get_latest_version("BTCUSDT")
+        report["steps"]["model_registry"] = {"latest_btc_version": v}
+        
+        if v != "v0.0.0":
+            # Try Loading (This is the critical crash point usually)
+            try:
+                model, _, _, _ = registry.load_latest_model("BTCUSDT")
+                if model:
+                     report["steps"]["model_load"] = {"status": "ok"}
+                else:
+                     report["steps"]["model_load"] = {"status": "failed_return_none"}
+            except Exception as e:
+                 report["steps"]["model_load"] = {"status": "crashed", "error": str(e)}
+    except Exception as e:
+        report["steps"]["model_registry"] = {"status": "failed", "error": str(e)}
+        
+    return report
