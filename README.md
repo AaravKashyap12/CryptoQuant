@@ -92,6 +92,7 @@
     <li><a href="https://www.tensorflow.org/">TensorFlow/Keras</a></li>
     <li><a href="https://pandas.pydata.org/">Pandas & NumPy</a></li>
     <li><a href="https://scikit-learn.org/">Scikit-learn</a></li>
+    <li><a href="https://www.docker.com/">Docker</a></li>
   </ul>
 </details>
 
@@ -103,6 +104,7 @@
 - **Predict Prices**: forecast future prices using LSTM neural networks.
 - **Visualize**: Interactive charts with zoomable timeframes and confidence bands.
 - **Explainability**: "White-box" model insights explaining why a prediction was made.
+- **Auto-Pilot**: Continuous background retraining every 24 hours to ensure fresh models.
 
 <!-- Getting Started -->
 ## :toolbox: Getting Started
@@ -132,41 +134,32 @@ This project uses Python for the backend and Node.js for the frontend.
 
 <!-- Run Locally -->
 ### :running: Run Locally
+    
+#### Quick Start (Recommended)
 
-#### Backend (Python/FastAPI)
+Double-click `run_app.bat` to launch both the Backend and Frontend automatically.
 
-1. Go to the backend directory
-   ```bash
-   cd backend
-   ```
-2. Create a virtual environment
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   ```
-3. Install dependencies
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Start the server
-   ```bash
-   uvicorn main:app --reload --port 8000
-   ```
+#### Manual Startup
 
-#### Frontend (React/Vite)
+**Backend (Python/FastAPI)**
+1. Go to `backend/`
+2. Activate venv: `..\.venv\Scripts\activate`
+3. Run: `uvicorn main:app --reload --port 8001`
 
-1. Go to the frontend directory
+**Frontend (React/Vite)**
+1. Go to `frontend/`
+2. Run: `npm run dev`
+
+### :brain: Model Retraining
+
+To update the models with the latest real market data:
+
+1. Ensure the app is running (`run_app.bat`).
+2. Run the training script:
    ```bash
-   cd ../frontend
+   python scripts/train_models.py
    ```
-2. Install packages
-   ```bash
-   npm install
-   ```
-3. Start the development server
-   ```bash
-   npm run dev
-   ```
+3. This will trigger a background job. Models update in ~5-10 minutes.
 
 Open `http://localhost:5173` in your browser.
 

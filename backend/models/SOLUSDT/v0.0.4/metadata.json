@@ -1,0 +1,14 @@
+{
+    "timestamp": "2026-02-11T20:06:19.122103",
+    "version": "v0.0.4",
+    "metrics": {
+        "val_loss": 0.0024611803237348795,
+        "val_mae": 0.0369829423725605,
+        "epochs": 50,
+        "data_points": 981
+    },
+    "config": {
+        "lookback": 60,
+        "features": 14
+    }
+}
