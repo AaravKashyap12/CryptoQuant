@@ -83,6 +83,9 @@ def prepare_inference_data(df, scaler, lookback=60):
     scaled_data = scaler.transform(data)
     
     # 4. Get last sequence
+    if len(scaled_data) < lookback:
+        raise ValueError(f"Insufficient data for inference. Needed {lookback}, got {len(scaled_data)}")
+
     last_sequence = scaled_data[-lookback:]
     
     # Reshape for LSTM [1, lookback, n_features]

@@ -257,7 +257,9 @@ def fetch_klines(symbol, interval=None, limit=500):
             df.set_index('open_time', inplace=True)
             df = df[['close', 'open', 'high', 'low', 'volume']]
             df['source'] = 'Binance'
-            return df
+            if len(df) >= 100:
+                return df
+            print(f"Binance returned insufficient data: {len(df)} rows")
     except Exception as e:
         print(f"Binance Blocked/Error: {e}")
         pass
@@ -267,8 +269,9 @@ def fetch_klines(symbol, interval=None, limit=500):
     if interval is None or interval == Client.KLINE_INTERVAL_1DAY:
         print(f"Falling back to Yahoo Finance for {symbol}...")
         df_yahoo = fetch_from_yahoo(symbol, limit)
-        if df_yahoo is not None:
+        if df_yahoo is not None and len(df_yahoo) >= 100:
             return df_yahoo
+        print(f"Yahoo returned insufficient data.")
 
     # 3. Fallback to Mock
     print(f"All APIs failed. Using Mock Data for {symbol}.")
