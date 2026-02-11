@@ -118,69 +118,51 @@ def fetch_klines(symbol, interval=None, limit=500): # interval default handled i
 import requests
 import time
 
-def fetch_from_coingecko(symbol, days=30):
+def fetch_from_ccxt(symbol, limit=500):
     """
-    Fetch historical data from CoinGecko (Free, no API key required for basic).
-    Symbol mapping: BTCUSDT -> bitcoin, ETHUSDT -> ethereum
+    Fetch OHLCV data using CCXT (Multi-exchange fallback).
+    Tries Kraken, then Coinbase.
     """
-    # Basic mapping
-    mapping = {
-        "BTCUSDT": "bitcoin",
-        "ETHUSDT": "ethereum",
-        "BNBUSDT": "binancecoin",
-        "SOLUSDT": "solana",
-        "ADAUSDT": "cardano",
-        "DOGEUSDT": "dogecoin",
-        "XRPUSDT": "ripple"
-    }
+    import ccxt
     
-    coin_id = mapping.get(symbol)
-    if not coin_id:
-        return None
-        
-    try:
-        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-        params = {
-            "vs_currency": "usd",
-            "days": days, 
-            "interval": "daily"
-        }
-        
-        # CoinGecko has strict rate limits, so we add a small delay/backoff check ideally
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code != 200:
-            print(f"CoinGecko Failed: {r.status_code}")
-            return None
+    # Map BTCUSDT -> BTC/USD for Kraken/Coinbase
+    base = symbol.replace("USDT", "")
+    ccxt_symbol = f"{base}/USD"
+    
+    exchanges = [ccxt.kraken(), ccxt.coinbase(), ccxt.kucoin()]
+    
+    for exchange in exchanges:
+        try:
+            # print(f"Trying {exchange.id} for {ccxt_symbol}...")
+            if exchange.id == 'kucoin':
+                 # Kupoint uses USDT
+                 target_symbol = f"{base}/USDT"
+            else:
+                 target_symbol = ccxt_symbol
+                 
+            # Fetch OHLCV
+            # timeframe '1d'
+            ohlcv = exchange.fetch_ohlcv(target_symbol, timeframe='1d', limit=limit)
             
-        data = r.json()
-        prices = data.get('prices', [])
-        
-        if not prices:
-            return None
+            if not ohlcv:
+                continue
+                
+            # Convert to DataFrame
+            # CCXT format: [timestamp, open, high, low, close, volume]
+            df = pd.DataFrame(ohlcv, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
             
-        # Convert to DataFrame
-        # CoinGecko returns [timestamp, price]
-        df = pd.DataFrame(prices, columns=['open_time', 'close'])
-        df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-        
-        # CoinGecko Hourly/Daily data lacks OHLC for free tier market_chart endpoint (it offers price only usually)
-        # But we can approximate OHL from the close stream or just set them equal for basic display
-        # Actually, for "market_chart" range < 90 days it's hourly, > 90 days it's daily.
-        
-        # Better approach: Use OHLC endpoint? (Requires Pro for > 1 day usually, restricted)
-        # We will use Close price and simulate OHL for the display if needed, OR just return Close.
-        # But our features.py needs High/Low/Volume.
-        
-        # Let's try OHLC endpoint (Free tier allows 1-7 days usually)
-        # url_ohlc = f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc"
-        # params_ohlc = {"vs_currency": "usd", "days": days}
-        
-        # Actually, let's use Yahoo Finance as 2nd valid source before Mock.
-        return None # Skip CoinGecko for OHLC complex needs, jump to Yahoo.
-        
-    except Exception as e:
-        print(f"CoinGecko error: {e}")
-        return None
+            # Timestamp is ms
+            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+            df.set_index('open_time', inplace=True)
+            df['source'] = f"CCXT ({exchange.id})"
+            
+            return df
+            
+        except Exception as e:
+            # print(f"CCXT {exchange.id} failed: {e}")
+            continue
+            
+    return None
 
 def fetch_from_yahoo(symbol, limit=500):
     """
@@ -264,10 +246,17 @@ def fetch_klines(symbol, interval=None, limit=500):
         print(f"Binance Blocked/Error: {e}")
         pass
 
-    # 2. Try Yahoo Finance (Backup)
-    # Only if interval is Daily (Yahoo 1d or 1h is okay, but we focus on 1d for prediction)
-    if interval is None or interval == Client.KLINE_INTERVAL_1DAY:
-        print(f"Falling back to Yahoo Finance for {symbol}...")
+    except Exception as e:
+        print(f"Binance Blocked/Error: {e}")
+        pass
+
+    # 2. Try CCXT (Kraken/Coinbase) - Best Alternative
+    print(f"Falling back to CCXT (Kraken/Coinbase) for {symbol}...")
+    df_ccxt = fetch_from_ccxt(symbol, limit)
+    if df_ccxt is not None and len(df_ccxt) >= 100:
+        return df_ccxt
+        
+    # 3. Try Yahoo Finance (Legacy Backup)
         df_yahoo = fetch_from_yahoo(symbol, limit)
         if df_yahoo is not None and len(df_yahoo) >= 100:
             return df_yahoo
