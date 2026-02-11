@@ -3,11 +3,13 @@ uvicorn
 pydantic
 python-dotenv
 pandas
-numpy
-tensorflow-cpu
+numpy  # Let docker resolve version
+tensorflow-cpu # Or tensorflow
 scikit-learn
 plotly
 pandas-ta
 python-binance
 joblib
 yfinance
+requests
+httpx
