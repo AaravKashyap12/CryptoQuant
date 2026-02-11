@@ -1,13 +1,19 @@
 import axios from 'axios';
 
+// Auto-switch based on environment
+const PROD_URL = 'https://cryptoquant-production.up.railway.app/api/v1';
+const DEV_URL = 'http://localhost:8001/api/v1';
+
+const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === 'development' ? DEV_URL : PROD_URL);
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1',
+    baseURL: BASE_URL,
     headers: {
         'Content-Type': 'application/json',
     },
 });
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1';
+const API_BASE_URL = BASE_URL;
 
 export const getCoins = async () => {
     const response = await api.get('/coins');
