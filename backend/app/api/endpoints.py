@@ -127,7 +127,44 @@ def train_model_endpoint(coin: str, background_tasks: BackgroundTasks):
         
     from src.train_model import train_single_coin
     
-    # Add to background tasks
     background_tasks.add_task(train_single_coin, f"{coin}USDT")
     
     return {"status": "processing", "message": f"Training started for {coin}. Check back in 1-2 minutes."}
+
+@router.get("/train-status/{coin}")
+def get_training_status(coin: str):
+    """
+    Check the latest model version and timestamp to see if training completed.
+    """
+    if coin not in COINS:
+        raise HTTPException(status_code=404, detail="Coin not supported")
+        
+    registry = ModelRegistry()
+    latest_version = registry.get_latest_version(f"{coin}USDT")
+    
+    if latest_version == "v0.0.0":
+        return {"status": "not_trained", "version": None, "timestamp": None}
+        
+    # Load metadata to get timestamp
+    try:
+        import os
+        import json
+        
+        # We can use registry internal path logic or load_latest_model (but load is heavy)
+        # Let's just peek at the file directly for speed
+        model_dir = os.path.join("models", f"{coin}USDT", latest_version)
+        meta_path = os.path.join(model_dir, "metadata.json")
+        
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            return {
+                "status": "trained", 
+                "version": latest_version, 
+                "timestamp": metadata.get("timestamp"),
+                "metrics": metadata.get("metrics")
+            }
+    except:
+        pass
+        
+    return {"status": "unknown", "version": latest_version}
