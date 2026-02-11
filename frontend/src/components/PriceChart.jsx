@@ -56,8 +56,8 @@ export function PriceChart({ data, forecast }) {
 
     // Process Data
     const historicalData = data.map(d => ({
-        date: new Date(d.open_time).toLocaleDateString(),
-        fullDate: new Date(d.open_time),
+        date: new Date(Number(d.open_time)).toLocaleDateString(),
+        fullDate: new Date(Number(d.open_time)),
         price: d.close,
         type: 'historical'
     }));
