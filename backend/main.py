@@ -40,7 +40,7 @@ def health_check():
 
 from app.api import endpoints
 
-app.include_router(endpoints.router, prefix="/api/v1")
+# app.include_router(endpoints.router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup_event():
