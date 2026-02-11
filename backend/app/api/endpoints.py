@@ -38,8 +38,15 @@ def get_market_data(coin: str, limit: int = 100):
     # Ensure date is UNIX timestamp (ms) to avoid JS parsing issues ("Invalid Date")
     import numpy as np
     # Convert 'open_time' column (which we just created) to int64 milliseconds
+    import numpy as np
+    # Convert 'open_time' column (which we just created) to int64 milliseconds
     if 'open_time' in df.columns:
-        df['open_time'] = df['open_time'].astype(np.int64) // 10**6
+        # Force nanoseconds casting to handle different Pandas 2.0+ resolutions (us/ms/ns)
+        # 1. Ensure it's datetime
+        df['open_time'] = pd.to_datetime(df['open_time'])
+        # 2. Cast to datetime64[ns] explicitly (int64 representation is nanoseconds)
+        # 3. Convert to int64 and divide by 10^6 to get milliseconds
+        df['open_time'] = df['open_time'].astype('datetime64[ns]').astype(np.int64) // 10**6
         
     return df.to_dict(orient="records")
 
