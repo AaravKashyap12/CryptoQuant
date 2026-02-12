@@ -24,31 +24,35 @@ def get_market_data(coin: str, limit: int = 100):
     if coin not in COINS:
         raise HTTPException(status_code=404, detail="Coin not supported")
         
-    symbol = f"{coin}USDT"
-    df = fetch_klines(symbol, limit=limit)
-    
-    if df is None:
-        raise HTTPException(status_code=500, detail="Failed to fetch data from Binance")
+    try:
+        symbol = f"{coin}USDT"
+        df = fetch_klines(symbol, limit=limit)
         
-    # Convert to JSON-compatible format
-    # Ensure index is named "open_time" so it becomes a column with that name
-    df.index.name = "open_time"
-    df.reset_index(inplace=True) # Make timestamp a column
-    
-    # Ensure date is UNIX timestamp (ms) to avoid JS parsing issues ("Invalid Date")
-    import numpy as np
-    # Convert 'open_time' column (which we just created) to int64 milliseconds
-    import numpy as np
-    # Convert 'open_time' column (which we just created) to int64 milliseconds
-    if 'open_time' in df.columns:
-        # Force nanoseconds casting to handle different Pandas 2.0+ resolutions (us/ms/ns)
-        # 1. Ensure it's datetime
-        df['open_time'] = pd.to_datetime(df['open_time'])
-        # 2. Cast to datetime64[ns] explicitly (int64 representation is nanoseconds)
-        # 3. Convert to int64 and divide by 10^6 to get milliseconds
-        df['open_time'] = df['open_time'].astype('datetime64[ns]').astype(np.int64) // 10**6
+        if df is None:
+            raise HTTPException(status_code=500, detail="Failed to fetch data from Binance (Returned None)")
+            
+        # Convert to JSON-compatible format
+        # Ensure index is named "open_time" so it becomes a column with that name
+        df.index.name = "open_time"
+        df.reset_index(inplace=True) # Make timestamp a column
         
-    return df.to_dict(orient="records")
+        # Ensure date is UNIX timestamp (ms) to avoid JS parsing issues ("Invalid Date")
+        import numpy as np
+        
+        if 'open_time' in df.columns:
+            # Force nanoseconds casting to handle different Pandas 2.0+ resolutions (us/ms/ns)
+            # 1. Ensure it's datetime
+            df['open_time'] = pd.to_datetime(df['open_time'])
+            # 2. Cast to datetime64[ns] explicitly (int64 representation is nanoseconds)
+            # 3. Convert to int64 and divide by 10^6 to get milliseconds
+            df['open_time'] = df['open_time'].astype('datetime64[ns]').astype(np.int64) // 10**6
+            
+        return df.to_dict(orient="records")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"CRITICAL ERROR in /market-data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Market Data Error: {str(e)}")
 
 @router.post("/predict/{coin}")
 def predict_coin(coin: str):
