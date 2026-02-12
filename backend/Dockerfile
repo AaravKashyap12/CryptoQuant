@@ -1,5 +1,5 @@
 # Use official Python runtime as a parent image
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -20,8 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project
 COPY . .
 
-# Expose port (default for most cloud providers)
-EXPOSE 8000
+# Expose port (Railway doesn’t require this but it's fine)
+EXPOSE 8080
 
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the application (use Railway dynamic PORT)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

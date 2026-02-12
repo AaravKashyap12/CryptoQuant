@@ -7,7 +7,7 @@ numpy  # Let docker resolve version
 tensorflow-cpu # Or tensorflow
 scikit-learn
 plotly
-pandas_ta
+pandas-ta
 python-binance
 joblib
 yfinance
