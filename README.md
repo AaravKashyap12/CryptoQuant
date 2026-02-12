@@ -163,6 +163,20 @@ To update the models with the latest real market data:
 
 Open `http://localhost:5173` in your browser.
 
+<!-- Deployment -->
+## :rocket: Deployment
+
+### Deploy on Render (Recommended)
+
+1.  Push your code to GitHub.
+2.  Go to [Render Dashboard](https://dashboard.render.com/).
+3.  Click **New +** -> **Web Service**.
+4.  Connect your GitHub repository.
+5.  Render will automatically detect `render.yaml` and configure the deployment.
+6.  Click **Create Web Service**.
+
+That's it! Your API will be live in minutes.
+
 <!-- Usage -->
 ## :eyes: Usage
 
