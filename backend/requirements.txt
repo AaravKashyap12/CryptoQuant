@@ -3,11 +3,11 @@ uvicorn
 pydantic
 python-dotenv
 pandas
-numpy  # Let docker resolve version
-tensorflow-cpu # Or tensorflow
+numpy
+tensorflow-cpu
 scikit-learn
 plotly
-pandas-ta
+ta                  # replaces pandas-ta (abandoned) - same indicators, maintained
 python-binance
 joblib
 yfinance
