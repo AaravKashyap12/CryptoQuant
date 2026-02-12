@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Auto-switch based on environment
-const PROD_URL = 'https://cryptoquant-production.up.railway.app/api/v1';
+const PROD_URL = 'https://cryptoquant-api-plez.onrender.com/api/v1';
 const DEV_URL = 'http://localhost:8001/api/v1';
 
 const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === 'development' ? DEV_URL : PROD_URL);

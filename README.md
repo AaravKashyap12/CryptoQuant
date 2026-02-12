@@ -177,6 +177,21 @@ Open `http://localhost:5173` in your browser.
 
 That's it! Your API will be live in minutes.
 
+### Deploy Frontend on Vercel
+
+1.  Push your code to GitHub.
+2.  Go to [Vercel Dashboard](https://vercel.com/dashboard).
+3.  Click **Add New...** -> **Project**.
+4.  Import the `CryptoQuant` repository.
+5.  **Configure Project**:
+    - **Framework Preset**: Vite
+    - **Root Directory**: `frontend` (Click Edit)
+    - **Environment Variables**:
+      - `VITE_API_URL`: `https://your-render-backend-url.onrender.com` (Get this from Render)
+6.  Click **Deploy**.
+
+Your frontend will be live and connected to your backend! 🚀
+
 <!-- Usage -->
 ## :eyes: Usage
 
