@@ -3,7 +3,7 @@ uvicorn
 pydantic
 python-dotenv
 pandas
-numpy
+numpy<2.0.0
 tensorflow-cpu
 scikit-learn
 plotly
