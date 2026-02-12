@@ -5,23 +5,23 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Set work directory
-WORKDIR /app
-
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Set WORKDIR to /app/backend so the 'app' package is always on the Python path
+WORKDIR /app/backend
+
 # Install Python dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project
-COPY . .
+# Copy the full project into /app  (so backend/ lands at /app/backend/)
+COPY . /app
 
-# Expose port (Railway doesn’t require this but it's fine)
+# Expose port
 EXPOSE 8080
 
-# Run the application (use Railway dynamic PORT)
-CMD ["sh", "-c", "cd /app/backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# uvicorn starts from WORKDIR (/app/backend), so 'from app.api import ...' works
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
