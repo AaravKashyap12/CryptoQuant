@@ -10,7 +10,7 @@ from src.registry import ModelRegistry
 COINS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
 LOOKBACK = 60
 FORECAST_HORIZON = 7
-EPOCHS = 50
+EPOCHS = 15
 BATCH_SIZE = 32
 
 def train_single_coin(coin):
@@ -21,7 +21,7 @@ def train_single_coin(coin):
     registry = ModelRegistry()
     
     # 1. Fetch Data
-    df = fetch_klines(coin, limit=2000) 
+    df = fetch_klines(coin, limit=500) 
     if df is None:
         print(f"Skipping {coin} due to data fetch error.")
         return None
