@@ -1,13 +1,11 @@
 services:
   - type: web
-    name: crypto-price-predictor
-    env: docker
-    plan: free
+    name: cryptoquant-api
+    env: python
     region: ohio
-    buildCommand: docker build -t backend .
-    startCommand: docker run -p 8080:8080 backend
+    plan: free
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
-      - key: PORT
-        value: 8080
       - key: PYTHON_VERSION
         value: 3.10.12
