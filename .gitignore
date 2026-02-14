@@ -19,3 +19,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Models (Generated at build time)
+backend/models/
+"backend/models/" 

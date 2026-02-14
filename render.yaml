@@ -4,6 +4,6 @@ services:
     runtime: python
     region: ohio
     plan: free
-    pythonVersion: "3.10.12"
-    buildCommand: "cd backend && pip install --upgrade pip setuptools wheel && pip install --no-cache-dir -r requirements.txt"
+    pythonVersion: "3.11.11"
+    buildCommand: "cd backend && pip install --upgrade pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && python -m src.train_model"
     startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"

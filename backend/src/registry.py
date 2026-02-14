@@ -76,7 +76,7 @@ class ModelRegistry:
         # Check Cache
         cache_key = f"{coin}_{latest}"
         if cache_key in _MODEL_CACHE:
-            print(f"Loading {coin} model from CACHE ⚡")
+            print(f"Loading {coin} model from CACHE (cached)")
             return _MODEL_CACHE[cache_key]
             
         load_dir = os.path.join(self.base_dir, coin, latest)
@@ -84,7 +84,7 @@ class ModelRegistry:
         try:
             from tensorflow.keras.models import load_model
             
-            print(f"Loading {coin} model from DISK 💾")
+            print(f"Loading {coin} model from DISK")
             
             # Load Model
             model = load_model(os.path.join(load_dir, "model.keras"))
@@ -103,5 +103,7 @@ class ModelRegistry:
             return model, scaler, target_scaler, metadata
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Failed to load {coin} {latest}: {e}")
             return None, None, None, None
