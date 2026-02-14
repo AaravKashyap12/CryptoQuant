@@ -3,12 +3,10 @@ uvicorn
 pydantic
 python-dotenv
 pandas
-numpy<2.0.0
+numpy
 tensorflow-cpu # Or tensorflow
 scikit-learn
-python-binance
 joblib
-yfinance
 requests
 httpx
 ccxt

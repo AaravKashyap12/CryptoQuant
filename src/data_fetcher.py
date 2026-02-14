@@ -1,33 +1,28 @@
 import os
 import pandas as pd
 import numpy as np
-from binance.client import Client
-from dotenv import load_dotenv
+import ccxt
+import requests
+import time
+from datetime import datetime, timedelta
+
+# Disable SSL warnings if needed (though usually fine with requests)
 import urllib3
-
-# Load environment variables
-load_dotenv()
-
-# Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def get_binance_client():
+def get_exchange_client(exchange_id):
     """
-    Safely initialize Binance client. Returns None if connection fails.
+    Initialize a specific CCXT exchange client.
     """
     try:
-        api_key = os.getenv('BINANCE_API_KEY')
-        api_secret = os.getenv('BINANCE_API_SECRET')
-        
-        if api_key:
-            api_key = api_key.strip().replace('\n', '').replace('\r', '')
-        if api_secret:
-            api_secret = api_secret.strip().replace('\n', '').replace('\r', '')
-            
-        client = Client(api_key, api_secret, requests_params={'verify': False})
-        return client
+        exchange_class = getattr(ccxt, exchange_id)
+        exchange = exchange_class({
+            'enableRateLimit': True,
+            'timeout': 10000,
+        })
+        return exchange
     except Exception as e:
-        print(f"Warning: Could not initialize Binance client: {e}")
+        print(f"Failed to initialize {exchange_id}: {e}")
         return None
 
 def generate_mock_data(symbol, interval='1d', limit=500):
@@ -54,7 +49,6 @@ def generate_mock_data(symbol, interval='1d', limit=500):
     freq = 'D'
     if interval == '1h':
         freq = 'h'
-        # For hourly, reduce volatility per step
         volatility = 0.005 
     elif interval == '15m':
         freq = '15min'
@@ -96,123 +90,99 @@ def generate_mock_data(symbol, interval='1d', limit=500):
     
     return df[['close', 'open', 'high', 'low', 'volume']]
 
-def fetch_klines(symbol, interval=None, limit=500): # interval default handled inside
+def fetch_klines(symbol, interval=None, limit=500):
     """
-    Fetch historical klines (candlestick data) for a symbol.
-    Uses Binance API if available. 
-    If Direct Pair fails, falls back to BTCUSDT * ConversionRate.
+    Fetch historical klines using CCXT (Multi-Exchange Fallback).
+    Prioritizes Kraken -> Coinbase -> Binance (Public) -> KuCoin.
     """
-    client = get_binance_client()
+    # Map Symbol to Standard CCXT Format
+    # Input: BTCUSDT
+    # Standard: BTC/USDT or BTC/USD
     
-    # Default interval if not passed
-    binance_interval = interval
-    mock_interval = '1d'
-
-    if interval is None:
-        binance_interval = Client.KLINE_INTERVAL_1DAY
-    elif interval == Client.KLINE_INTERVAL_1HOUR:
-        mock_interval = '1h'
-    elif interval == Client.KLINE_INTERVAL_15MINUTE:
-        mock_interval = '15m'
-
-    if client:
-        try:
-            # 1. Try Direct Pair (e.g. BTCEUR)
-            klines = client.get_klines(symbol=symbol, interval=binance_interval, limit=limit)
+    base = symbol.replace("USDT", "")
+    target_pairs = [f"{base}/USDT", f"{base}/USD"]
+    
+    # Exchanges to try in order
+    # Kraken/Coinbase are very reliable for public data without keys
+    exchange_ids = ['kraken', 'coinbase', 'binance', 'kucoin', 'okx']
+    
+    timeframe = '1d'
+    # Map standard intervals
+    if interval == '1h':
+        timeframe = '1h'
+    elif interval == '15m':
+        timeframe = '15m'
+        
+    for ex_id in exchange_ids:
+        exchange = get_exchange_client(ex_id)
+        if not exchange:
+            continue
             
-            cols = [
-                'open_time', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_asset_volume', 'number_of_trades',
-                'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-            ]
-            
-            df = pd.DataFrame(klines, columns=cols)
-            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-            df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
-            
-            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-            df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
-            
-            df.set_index('open_time', inplace=True)
-            df = df[['close', 'open', 'high', 'low', 'volume']]
-            df['source'] = 'Binance Direct'
-            return df
-            
-        except Exception as e:
-            # 2. Fallback: Try Base+USDT and convert
-            # Only if error suggests invalid symbol and it's not already USDT
-            if "Invalid symbol" in str(e) and not symbol.endswith("USDT"):
-                # Guess Base and Quote
-                # Most quotes are 3 chars (EUR, INR, GBP). USDT is 4.
-                # If we are here, it's likely a 3-char quote like 'INR'.
-                quote = symbol[-3:] 
-                base = symbol[:-3]
+        for pair in target_pairs:
+            try:
+                # Check if exchange supports the pair (optional, prevents 404s but fetch_ohlcv handles it)
+                # Just try fetch directly
                 
-                start_symbol = f"{base}USDT"
-                try:
-                    # Fetch USDT Pair (Recursively to handle mocking if needed, but usually we want real data)
-                    # We call client.get_klines directly to avoid infinite recursion quirks or ambiguity
-                    klines = client.get_klines(symbol=start_symbol, interval=binance_interval, limit=limit)
+                # print(f"Fetching {pair} from {ex_id}...")
+                ohlcv = exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
+                
+                if not ohlcv or len(ohlcv) < 10:
+                    continue
                     
-                    cols = [
-                        'open_time', 'open', 'high', 'low', 'close', 'volume',
-                        'close_time', 'quote_asset_volume', 'number_of_trades',
-                        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-                    ]
-                    df = pd.DataFrame(klines, columns=cols)
-                    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-                    numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-                    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
-                    df.set_index('open_time', inplace=True)
-                    df = df[['close', 'open', 'high', 'low', 'volume']]
-                    
-                    # Convert to Target Currency
-                    rate = get_conversion_rate(quote)
-                    df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']] * rate
-                    # Volume is in Base Asset (BTC), so it stays same? 
-                    # Binance "volume" is usually Base Asset Volume. "quote_asset_volume" is Quote.
-                    # We keep volume as is (Base Asset amount).
-                    
-                    df['source'] = f'Binance Converted ({start_symbol} -> {quote})'
-                    return df
-                    
-                except Exception as e2:
-                    print(f"Fallback to {start_symbol} failed: {e2}")
-            else:
-                 print(f"Binance API error for {symbol}: {e}")
-
-            # Fall through to mock data
-            
-    # Final Fallback: Mock
-    df = generate_mock_data(symbol, interval=mock_interval, limit=limit)
+                # CCXT structure: [timestamp, open, high, low, close, volume]
+                df = pd.DataFrame(ohlcv, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
+                
+                # Convert timestamp (ms) to datetime
+                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+                df.set_index('open_time', inplace=True)
+                
+                # Convert numeric
+                numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+                df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
+                
+                # Filter just in case
+                df = df[['close', 'open', 'high', 'low', 'volume']]
+                df['source'] = f"CCXT ({ex_id})"
+                
+                # Handle USD conversion if needed?
+                # Usually close enough to USDT to ignore for this app.
+                # If pair is BTC/USD and we want USDT, it's 1:1 effectively.
+                
+                return df
+                
+            except Exception as e:
+                # print(f"Failed to fetch {pair} from {ex_id}: {e}")
+                continue
+                
+    # Fallback to Mock
+    print(f"All CCXT exchanges failed for {symbol}. Using Mock Data.")
+    df = generate_mock_data(symbol, interval='1d', limit=limit)
     df['source'] = 'Mock'
     return df
 
 def get_current_price(symbol):
     """
-    Fetch the absolute latest price for a symbol.
-    Prioritizes direct pair, but handles missing pairs gracefully by converting from USDT.
+    Fetch current price using CCXT.
     """
-    client = get_binance_client()
-    if client:
-        try:
-            # 1. Try Direct
-            ticker = client.get_symbol_ticker(symbol=symbol)
-            return float(ticker['price'])
-        except Exception as e:
-            # 2. Fallback
-            if "Invalid symbol" in str(e) and not symbol.endswith("USDT"):
-                quote = symbol[-3:]
-                base = symbol[:-3]
-                try:
-                    ticker = client.get_symbol_ticker(symbol=f"{base}USDT")
-                    usdt_price = float(ticker['price'])
-                    rate = get_conversion_rate(quote)
-                    return usdt_price * rate
-                except:
-                    pass
-            # print(f"Error fetching current price for {symbol}: {e}")
-            pass
+    base = symbol.replace("USDT", "")
+    target_pairs = [f"{base}/USDT", f"{base}/USD"]
+    
+    exchange_ids = ['kraken', 'coinbase', 'binance', 'kucoin']
+    
+    for ex_id in exchange_ids:
+        exchange = get_exchange_client(ex_id)
+        if not exchange:
+            continue
+            
+        for pair in target_pairs:
+            try:
+                ticker = exchange.fetch_ticker(pair)
+                price = ticker['last']
+                if price:
+                    return float(price)
+            except:
+                continue
+                
     return None
 
 def get_live_rate(target_currency):
@@ -220,8 +190,7 @@ def get_live_rate(target_currency):
     Fetch live forex rate from external API.
     """
     try:
-        import requests
-        # Free API (rate limit: ample for this use case)
+        # Free API
         url = "https://api.exchangerate-api.com/v4/latest/USD"
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -233,37 +202,25 @@ def get_live_rate(target_currency):
 
 def get_conversion_rate(target_currency):
     """
-    Get conversion rate from USDT to target_currency.
+    Get conversion rate from USDT (USD) to target_currency.
     """
     if target_currency == 'USD':
         return 1.0
         
-    # 1. Try Live Forex API (Most accurate for "Real" rates)
+    # 1. Try Live Forex API
     live_rate = get_live_rate(target_currency)
     
-    # Ad-hoc adjustment for INR (Crypto USDT premium in India is typically ~4-5% above Forex rate)
-    # If user specifically compares to Binance INR display, they often use USDT P2P rates or similar.
-    # We will add a small premium for INR to match "Crypto" expectations if it is INR.
     if live_rate and target_currency == 'INR':
-        live_rate *= 1.04 # Approx 4% USDT premium
+        live_rate *= 1.04 # USDT Premium
         
     if live_rate:
         return live_rate
         
-    # 2. Fallback to Binance (Direct Pairs)
-    client = get_binance_client()
-    if client:
-        try:
-            ticker = client.get_symbol_ticker(symbol=f"{target_currency}USDT")
-            return 1.0 / float(ticker['price'])
-        except:
-            pass
-            
-    # 3. Last Resort Fallbacks (Updated roughly for early 2026)
+    # 2. Hardcoded Fallbacks
     fallbacks = {
         'EUR': 0.92,
         'GBP': 0.79,
-        'INR': 94.0, # Updated fallback to reflect typical USDT P2P rates in India
+        'INR': 94.0,
         'AUD': 1.55,
         'JPY': 155.0,
         'CAD': 1.38
@@ -273,3 +230,4 @@ def get_conversion_rate(target_currency):
 if __name__ == "__main__":
     df = fetch_klines("BTCUSDT", limit=5)
     print(df.head())
+    print(f"Source: {df.iloc[-1].get('source')}")

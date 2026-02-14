@@ -1,33 +1,28 @@
 import os
 import pandas as pd
 import numpy as np
-from binance.client import Client
-from dotenv import load_dotenv
+import ccxt
+import requests
+import time
+from datetime import datetime, timedelta
+
+# Disable SSL warnings if needed (though usually fine with requests)
 import urllib3
-
-# Load environment variables
-load_dotenv()
-
-# Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def get_binance_client():
+def get_exchange_client(exchange_id):
     """
-    Safely initialize Binance client. Returns None if connection fails.
+    Initialize a specific CCXT exchange client.
     """
     try:
-        api_key = os.getenv('BINANCE_API_KEY')
-        api_secret = os.getenv('BINANCE_API_SECRET')
-        
-        if api_key:
-            api_key = api_key.strip().replace('\n', '').replace('\r', '')
-        if api_secret:
-            api_secret = api_secret.strip().replace('\n', '').replace('\r', '')
-            
-        client = Client(api_key, api_secret, requests_params={'verify': False})
-        return client
+        exchange_class = getattr(ccxt, exchange_id)
+        exchange = exchange_class({
+            'enableRateLimit': True,
+            'timeout': 10000,
+        })
+        return exchange
     except Exception as e:
-        print(f"Warning: Could not initialize Binance client: {e}")
+        print(f"Failed to initialize {exchange_id}: {e}")
         return None
 
 def generate_mock_data(symbol, interval='1d', limit=500):
@@ -54,7 +49,6 @@ def generate_mock_data(symbol, interval='1d', limit=500):
     freq = 'D'
     if interval == '1h':
         freq = 'h'
-        # For hourly, reduce volatility per step
         volatility = 0.005 
     elif interval == '15m':
         freq = '15min'
@@ -96,224 +90,99 @@ def generate_mock_data(symbol, interval='1d', limit=500):
     
     return df[['close', 'open', 'high', 'low', 'volume']]
 
-def fetch_klines(symbol, interval=None, limit=500): # interval default handled inside
+def fetch_klines(symbol, interval=None, limit=500):
     """
-    Fetch historical klines (candlestick data) for a symbol.
-    Uses Binance API if available. 
-    If Direct Pair fails, falls back to BTCUSDT * ConversionRate.
+    Fetch historical klines using CCXT (Multi-Exchange Fallback).
+    Prioritizes Kraken -> Coinbase -> Binance (Public) -> KuCoin.
     """
-    client = get_binance_client()
+    # Map Symbol to Standard CCXT Format
+    # Input: BTCUSDT
+    # Standard: BTC/USDT or BTC/USD
     
-    # Default interval if not passed
-    binance_interval = interval
-    mock_interval = '1d'
-
-    if interval is None:
-        binance_interval = Client.KLINE_INTERVAL_1DAY
-    elif interval == Client.KLINE_INTERVAL_1HOUR:
-        mock_interval = '1h'
-    elif interval == Client.KLINE_INTERVAL_15MINUTE:
-        mock_interval = '15m'
-
-import requests
-import time
-
-def fetch_from_ccxt(symbol, limit=500):
-    """
-    Fetch OHLCV data using CCXT (Multi-exchange fallback).
-    Tries Kraken, then Coinbase.
-    """
-    import ccxt
-    
-    # Map BTCUSDT -> BTC/USD for Kraken/Coinbase
     base = symbol.replace("USDT", "")
-    ccxt_symbol = f"{base}/USD"
+    target_pairs = [f"{base}/USDT", f"{base}/USD"]
     
-    exchanges = [ccxt.kraken(), ccxt.coinbase(), ccxt.kucoin()]
+    # Exchanges to try in order
+    # Kraken/Coinbase are very reliable for public data without keys
+    exchange_ids = ['kraken', 'coinbase', 'binance', 'kucoin', 'okx']
     
-    for exchange in exchanges:
-        try:
-            # print(f"Trying {exchange.id} for {ccxt_symbol}...")
-            if exchange.id == 'kucoin':
-                 # Kupoint uses USDT
-                 target_symbol = f"{base}/USDT"
-            else:
-                 target_symbol = ccxt_symbol
-                 
-            # Fetch OHLCV
-            # timeframe '1d'
-            ohlcv = exchange.fetch_ohlcv(target_symbol, timeframe='1d', limit=limit)
-            
-            if not ohlcv:
-                continue
-                
-            # Convert to DataFrame
-            # CCXT format: [timestamp, open, high, low, close, volume]
-            df = pd.DataFrame(ohlcv, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
-            
-            # Timestamp is ms
-            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-            df.set_index('open_time', inplace=True)
-            df['source'] = f"CCXT ({exchange.id})"
-            
-            return df
-            
-        except Exception as e:
-            # print(f"CCXT {exchange.id} failed: {e}")
+    timeframe = '1d'
+    # Map standard intervals
+    if interval == '1h':
+        timeframe = '1h'
+    elif interval == '15m':
+        timeframe = '15m'
+        
+    for ex_id in exchange_ids:
+        exchange = get_exchange_client(ex_id)
+        if not exchange:
             continue
             
-    return None
-
-def fetch_from_yahoo(symbol, limit=500):
-    """
-    Fetch from Yahoo Finance using yfinance.
-    """
-    try:
-        import yfinance as yf
-        # Map BTCUSDT -> BTC-USD
-        y_symbol = f"{symbol.replace('USDT', '')}-USD"
-        
-        # Determine period
-        period = "2y" if limit > 60 else "3mo"
-        
-        ticker = yf.Ticker(y_symbol)
-        df = ticker.history(period=period, interval="1d")
-        
-        if df.empty:
-            return None
-            
-        df = df.reset_index()
-        # Columns: Date, Open, High, Low, Close, Volume
-        # Rename entries
-        col_map = {
-            "Date": "open_time",
-            "Datetime": "open_time",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Volume": "volume"
-        }
-        df.rename(columns=col_map, inplace=True)
-        
-        # timezone fix
-        if 'open_time' in df.columns:
-             df['open_time'] = pd.to_datetime(df['open_time']).dt.tz_localize(None)
-             
-        df.set_index('open_time', inplace=True)
-        df = df[['close', 'open', 'high', 'low', 'volume']]
-        df['source'] = 'Yahoo Finance'
-        
-        if len(df) > limit:
-            df = df.iloc[-limit:]
-            
-        return df
-        
-    except Exception as e:
-        print(f"Yahoo fetch failed: {e}")
-        return None
-
-def fetch_klines(symbol, interval=None, limit=500): 
-    """
-    Robust Multi-Source Fetcher:
-    1. Binance (Best data)
-    2. Yahoo Finance (Reliable backup)
-    3. Mock (Last resort)
-    """
-    # 1. Try Binance
-    try:
-        client = get_binance_client()
-        if client:
-            # Default logic from before...
-            binance_interval = interval or Client.KLINE_INTERVAL_1DAY
-            klines = client.get_klines(symbol=symbol, interval=binance_interval, limit=limit)
-            
-            # ... (Parse klines code) ...
-            cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'q', 'n', 'tb', 'tq', 'i']
-            df = pd.DataFrame(klines, columns=cols)
-            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-            
-            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-            df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
-            
-            df.set_index('open_time', inplace=True)
-            df = df[['close', 'open', 'high', 'low', 'volume']]
-            df['source'] = 'Binance'
-            if len(df) >= 100:
+        for pair in target_pairs:
+            try:
+                # Check if exchange supports the pair (optional, prevents 404s but fetch_ohlcv handles it)
+                # Just try fetch directly
+                
+                # print(f"Fetching {pair} from {ex_id}...")
+                ohlcv = exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
+                
+                if not ohlcv or len(ohlcv) < 10:
+                    continue
+                    
+                # CCXT structure: [timestamp, open, high, low, close, volume]
+                df = pd.DataFrame(ohlcv, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
+                
+                # Convert timestamp (ms) to datetime
+                df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+                df.set_index('open_time', inplace=True)
+                
+                # Convert numeric
+                numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+                df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, axis=1)
+                
+                # Filter just in case
+                df = df[['close', 'open', 'high', 'low', 'volume']]
+                df['source'] = f"CCXT ({ex_id})"
+                
+                # Handle USD conversion if needed?
+                # Usually close enough to USDT to ignore for this app.
+                # If pair is BTC/USD and we want USDT, it's 1:1 effectively.
+                
                 return df
-            print(f"Binance returned insufficient data: {len(df)} rows")
-    except Exception as e:
-        print(f"Binance Blocked/Error: {e}")
-        pass
-
-    except Exception as e:
-        print(f"Binance Blocked/Error: {e}")
-        pass
-
-    # 2. Try CCXT (Kraken/Coinbase) - Best Alternative
-    print(f"Falling back to CCXT (Kraken/Coinbase) for {symbol}...")
-    df_ccxt = fetch_from_ccxt(symbol, limit)
-    if df_ccxt is not None and len(df_ccxt) >= 100:
-        return df_ccxt
-        
-    # 3. Try Yahoo Finance (Legacy Backup)
-        df_yahoo = fetch_from_yahoo(symbol, limit)
-        if df_yahoo is not None and len(df_yahoo) >= 100:
-            return df_yahoo
-        print(f"Yahoo returned insufficient data.")
-
-    # 3. Fallback to Mock
-    print(f"All APIs failed. Using Mock Data for {symbol}.")
+                
+            except Exception as e:
+                # print(f"Failed to fetch {pair} from {ex_id}: {e}")
+                continue
+                
+    # Fallback to Mock
+    print(f"All CCXT exchanges failed for {symbol}. Using Mock Data.")
     df = generate_mock_data(symbol, interval='1d', limit=limit)
     df['source'] = 'Mock'
     return df
 
 def get_current_price(symbol):
     """
-    Fetch the absolute latest price for a symbol.
-    Prioritizes direct pair, but handles missing pairs gracefully by converting from USDT.
+    Fetch current price using CCXT.
     """
-    client = get_binance_client()
-    if client:
-        try:
-            # 1. Try Direct
-            ticker = client.get_symbol_ticker(symbol=symbol)
-            return float(ticker['price'])
-        except Exception as e:
-            # 2. Fallback
-            if "Invalid symbol" in str(e) and not symbol.endswith("USDT"):
-                quote = symbol[-3:]
-                base = symbol[:-3]
-                try:
-                    ticker = client.get_symbol_ticker(symbol=f"{base}USDT")
-                    usdt_price = float(ticker['price'])
-                    rate = get_conversion_rate(quote)
-                    return usdt_price * rate
-                except:
-                    pass
-            # print(f"Error fetching current price for {symbol}: {e}")
-            pass
+    base = symbol.replace("USDT", "")
+    target_pairs = [f"{base}/USDT", f"{base}/USD"]
+    
+    exchange_ids = ['kraken', 'coinbase', 'binance', 'kucoin']
+    
+    for ex_id in exchange_ids:
+        exchange = get_exchange_client(ex_id)
+        if not exchange:
+            continue
             
-    # 3. Fallback to Yahoo Finance (Real Data backup)
-    try:
-        import yfinance as yf
-        y_symbol = f"{symbol.replace('USDT', '')}-USD"
-        ticker = yf.Ticker(y_symbol)
-        
-        # 'fast_info' is faster than 'history'
-        price = ticker.fast_info.last_price
-        if price:
-            return float(price)
-            
-        # Fallback to history if fast_info fails
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            return float(hist['Close'].iloc[-1])
-            
-    except Exception as e:
-        print(f"Yahoo Price Fetch Failed: {e}")
-        pass
-        
+        for pair in target_pairs:
+            try:
+                ticker = exchange.fetch_ticker(pair)
+                price = ticker['last']
+                if price:
+                    return float(price)
+            except:
+                continue
+                
     return None
 
 def get_live_rate(target_currency):
@@ -321,8 +190,7 @@ def get_live_rate(target_currency):
     Fetch live forex rate from external API.
     """
     try:
-        import requests
-        # Free API (rate limit: ample for this use case)
+        # Free API
         url = "https://api.exchangerate-api.com/v4/latest/USD"
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -334,37 +202,25 @@ def get_live_rate(target_currency):
 
 def get_conversion_rate(target_currency):
     """
-    Get conversion rate from USDT to target_currency.
+    Get conversion rate from USDT (USD) to target_currency.
     """
     if target_currency == 'USD':
         return 1.0
         
-    # 1. Try Live Forex API (Most accurate for "Real" rates)
+    # 1. Try Live Forex API
     live_rate = get_live_rate(target_currency)
     
-    # Ad-hoc adjustment for INR (Crypto USDT premium in India is typically ~4-5% above Forex rate)
-    # If user specifically compares to Binance INR display, they often use USDT P2P rates or similar.
-    # We will add a small premium for INR to match "Crypto" expectations if it is INR.
     if live_rate and target_currency == 'INR':
-        live_rate *= 1.04 # Approx 4% USDT premium
+        live_rate *= 1.04 # USDT Premium
         
     if live_rate:
         return live_rate
         
-    # 2. Fallback to Binance (Direct Pairs)
-    client = get_binance_client()
-    if client:
-        try:
-            ticker = client.get_symbol_ticker(symbol=f"{target_currency}USDT")
-            return 1.0 / float(ticker['price'])
-        except:
-            pass
-            
-    # 3. Last Resort Fallbacks (Updated roughly for early 2026)
+    # 2. Hardcoded Fallbacks
     fallbacks = {
         'EUR': 0.92,
         'GBP': 0.79,
-        'INR': 94.0, # Updated fallback to reflect typical USDT P2P rates in India
+        'INR': 94.0,
         'AUD': 1.55,
         'JPY': 155.0,
         'CAD': 1.38
@@ -374,3 +230,4 @@ def get_conversion_rate(target_currency):
 if __name__ == "__main__":
     df = fetch_klines("BTCUSDT", limit=5)
     print(df.head())
+    print(f"Source: {df.iloc[-1].get('source')}")
