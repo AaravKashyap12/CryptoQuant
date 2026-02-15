@@ -1,10 +1,18 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-env/
-venv/
+# Pytho# Local environments
+.venv
+.venv_train
+.python-version
+
+# Data and Models
+data/
+registry.db
+models/
+*.keras
+*.h5
+*.pkl
+
+# Secrets
+.env
 .env
 
 # Node

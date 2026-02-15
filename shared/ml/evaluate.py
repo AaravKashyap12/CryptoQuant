@@ -129,3 +129,26 @@ def execute_rolling_backtest(coin, df, days=30, forecast_horizon=7):
         
     return history
 
+def evaluate_model(model, X_test, y_test, target_scaler):
+    """
+    Evaluate model performance on test data.
+    """
+    # Predict
+    y_pred_scaled = model.predict(X_test, verbose=0)
+    
+    # Inverse Transform
+    # y_test and y_pred are [samples, forecast_horizon]
+    # We flatten to 2D for scaler
+    y_pred = target_scaler.inverse_transform(y_pred_scaled)
+    y_test_inv = target_scaler.inverse_transform(y_test)
+    
+    # Calculate Metrics
+    mae = mean_absolute_error(y_test_inv, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test_inv, y_pred))
+    
+    return {
+        "mae": float(mae),
+        "rmse": float(rmse),
+        "horizon": y_test.shape[1]
+    }
+

@@ -8,7 +8,7 @@ sys.path.append(os.getcwd())
 from dotenv import load_dotenv
 load_dotenv() # Load production secrets from .env
 
-from services.worker.tasks import train_job_all_coins
+from shared.ml.training import train_job_all_coins
 import colorama
 from colorama import Fore, Style
 
