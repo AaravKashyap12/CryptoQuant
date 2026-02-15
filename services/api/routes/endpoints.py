@@ -104,7 +104,7 @@ def get_model_metrics(coin: str):
     return metadata
 
 @router.get("/validate/{coin}")
-def validate_model(coin: str, days: int = 30):
+def validate_model_endpoint(coin: str, days: int = 30):
     """
     Run a rolling backtest to compare Predicted vs Actual for the last 'days'.
     """
@@ -119,39 +119,12 @@ def validate_model(coin: str, days: int = 30):
         raise HTTPException(status_code=500, detail="Failed to fetch data")
         
     from shared.ml.evaluate import execute_rolling_backtest
-    history = execute_rolling_backtest(symbol, df, days=days)
+    history = execute_rolling_backtest(coin, df, days=days)
     
     if history is None:
-        raise HTTPException(status_code=500, detail="Validation failed (Model missing or insufficient data)")
-        
-    if isinstance(history, dict) and "error" in history:
-        raise HTTPException(status_code=400, detail=history["error"])
+        return []
         
     return history
-
-@router.get("/validate/{coin}")
-def validate_model_endpoint(coin: str):
-    """
-    Check the latest model version and history for validation charts.
-    """
-    if coin not in COINS:
-        raise HTTPException(status_code=404, detail="Coin not supported")
-        
-    symbol = f"{coin}USDT"
-    from shared.ml.registry import get_model_registry
-    registry = get_model_registry()
-    
-    meta = registry.get_latest_version_metadata(symbol)
-    
-    if not meta:
-        return {"status": "not_trained", "version": None, "timestamp": None}
-        
-    return {
-        "status": "trained", 
-        "version": meta.get("version"), 
-        "timestamp": meta.get("created_at"),
-        "metrics": meta.get("metrics")
-    }
 
 @router.get("/debug/system")
 def system_diagnostics():
