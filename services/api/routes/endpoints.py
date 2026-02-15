@@ -78,6 +78,8 @@ def predict_coin(coin: str):
             },
             "metadata": result['metadata']
         }
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
