@@ -24,9 +24,6 @@ class Settings(BaseSettings):
     # Local Storage
     LOCAL_STORAGE_DIR: str = os.path.join(os.getcwd(), "data", "models_storage")
     
-    # Admin Security
-    ADMIN_KEY: str = os.getenv("ADMIN_KEY", "dev-secret-key-123")
-    
     class Config:
         case_sensitive = True
 

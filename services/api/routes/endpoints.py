@@ -128,28 +128,10 @@ def validate_model(coin: str, days: int = 30):
         
     return history
 
-@router.post("/train/{coin}")
-def train_model_endpoint(coin: str, background_tasks: BackgroundTasks, x_admin_key: Optional[str] = Header(None)):
+@router.get("/validate/{coin}")
+def validate_model_endpoint(coin: str):
     """
-    Trigger a model retrain command for a specific coin.
-    Processed in background to prevent timeouts.
-    """
-    from shared.core.config import settings
-    if x_admin_key != settings.ADMIN_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized: Invalid Admin Key")
-
-    if coin not in COINS:
-        raise HTTPException(status_code=404, detail="Coin not supported")
-        
-    from services.worker.tasks import train_single_coin
-    background_tasks.add_task(train_single_coin, f"{coin}USDT")
-    
-    return {"status": "processing", "message": f"Training started for {coin}. Check back in 1-2 minutes."}
-
-@router.get("/train-status/{coin}")
-def get_training_status(coin: str):
-    """
-    Check the latest model version and timestamp to see if training completed.
+    Check the latest model version and history for validation charts.
     """
     if coin not in COINS:
         raise HTTPException(status_code=404, detail="Coin not supported")

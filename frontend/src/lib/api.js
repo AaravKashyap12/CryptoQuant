@@ -51,13 +51,4 @@ export const getValidation = async (coin) => {
     return response.data;
 };
 
-export const trainModel = async (coin) => {
-    const response = await api.post(`/train/${coin}`, {}, {
-        headers: {
-            'X-Admin-Key': 'dev-secret-key-123' // Default key, user can update in Vercel env later
-        }
-    });
-    return response.data;
-};
-
 export default api;

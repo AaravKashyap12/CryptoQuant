@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { getCoins, getMarketData, getPrediction, getMetrics, getValidation, trainModel } from './lib/api';
+import { getCoins, getMarketData, getPrediction, getMetrics, getValidation } from './lib/api';
 import { CoinSelector } from './components/CoinSelector';
 import { MetricsCard } from './components/MetricsCard';
 import { PriceChart } from './components/PriceChart';
@@ -17,17 +17,7 @@ function App() {
   const [validation, setValidation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [training, setTraining] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem('isAdmin') === 'true');
-
-  const toggleAdmin = () => {
-    const newState = !isAdmin;
-    setIsAdmin(newState);
-    localStorage.setItem('isAdmin', newState);
-    if (newState) alert("Admin Mode Enabled! 🔓");
-    else alert("Admin Mode Disabled. 🔒");
-  };
 
   useEffect(() => {
     async function init() {
@@ -83,20 +73,6 @@ function App() {
     loadData(coin);
   };
 
-  const handleTrain = async () => {
-    if (!window.confirm(`Start training new model for ${selectedCoin}? This will run in the background on Render.`)) return;
-    setTraining(true);
-    try {
-      await trainModel(selectedCoin);
-      alert(`Training started for ${selectedCoin}! Please wait 1-2 minutes then refresh.`);
-    } catch (e) {
-      console.error("Training failed", e);
-      alert("Failed to start training. Check console.");
-    } finally {
-      setTraining(false);
-    }
-  };
-
   // ... (Derived State Calculation)
   const currentPrice = marketData.length > 0 ? marketData[marketData.length - 1].close : 0;
   const prevPrice = marketData.length > 1 ? marketData[marketData.length - 2].close : currentPrice;
@@ -133,7 +109,6 @@ function App() {
         coins={coins}
         selectedCoin={selectedCoin}
         onSelect={handleCoinChange}
-        onLogoClick={toggleAdmin}
       />
 
       <ProjectInfo isOpen={showInfo} onClose={() => setShowInfo(false)} />
@@ -154,17 +129,6 @@ function App() {
             <Info size={16} className="text-blue-400" />
             About
           </button>
-
-          {isAdmin && (
-            <button
-              onClick={handleTrain}
-              disabled={training}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border border-orange-500/30 rounded-lg hover:bg-orange-500/10 transition-colors text-sm font-medium text-orange-400 disabled:opacity-50"
-            >
-              <RefreshCw size={16} className={training ? "animate-spin" : ""} />
-              {training ? "Starting Training..." : "Train Model"}
-            </button>
-          )}
 
           <button
             onClick={handleRefresh}
