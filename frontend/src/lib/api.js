@@ -51,4 +51,9 @@ export const getValidation = async (coin) => {
     return response.data;
 };
 
+export const trainModel = async (coin) => {
+    const response = await api.post(`/train/${coin}`);
+    return response.data;
+};
+
 export default api;
