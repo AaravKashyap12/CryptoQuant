@@ -1,0 +1,31 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install API requirements (shared libs) and test dependencies
+        pip install -r services/api/requirements.txt
+        pip install pytest pytest-mock
+        
+    - name: Run Tests
+      run: |
+        export PYTHONPATH=$PYTHONPATH:.
+        python -m pytest tests/unit

@@ -11,6 +11,78 @@ def naive_baseline(data, forecast_horizon):
     last_val = data[-1]
     return np.full(forecast_horizon, last_val)
 
+def execute_rolling_backtest(coin, df, days=30, forecast_horizon=7):
+    """
+    Performs a rolling backtest for the API.
+    Returns a list of {date, actual, predicted} for the visualization.
+    """
+    from src.registry import ModelRegistry
+    from src.features import add_technical_indicators, get_feature_columns
+    
+    registry = ModelRegistry()
+    model, scaler, target_scaler, metadata = registry.load_latest_model(coin)
+    
+    if model is None:
+        return None
+        
+    lookback = metadata['config']['lookback']
+    
+    # Ensure enough data
+    # Indicators lose data, so we need a buffer
+    required_len = lookback + days + forecast_horizon + 50 
+    if len(df) < required_len:
+        # Try with what we have, add_technical_indicators will drop NAs
+        pass
+        
+    # Process Data
+    df_full = add_technical_indicators(df.copy())
+    feature_cols = get_feature_columns()
+    
+    # Drop rows with NAs from indicators
+    df_full.dropna(inplace=True)
+    
+    if len(df_full) < (lookback + days):
+         return {"error": f"Not enough data after indicators. Need {lookback + days}, have {len(df_full)}"}
+
+    # Scale
+    data_values = df_full[feature_cols].values
+    scaled_data = scaler.transform(data_values)
+    
+    history = []
+    
+    # We want the last 'days' points
+    end_idx = len(df_full) 
+    start_idx = end_idx - days
+    
+    for i in range(start_idx, end_idx):
+        # Input for prediction at index 'i'
+        # Data BEFORE i: [i-lookback : i]
+        input_start = i - lookback
+        input_end = i
+        
+        if input_start < 0: continue
+            
+        X = scaled_data[input_start : input_end]
+        X = X.reshape(1, lookback, X.shape[1])
+        
+        # Run inference
+        y_pred_scaled = model.predict(X, verbose=0)
+        
+        # Inverse transform
+        y_pred = target_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+        
+        # Actual price at 'i'
+        actual_price = df_full.iloc[i]['close']
+        timestamp = df_full.index[i]
+        
+        history.append({
+            "date": str(timestamp),
+            "actual": float(actual_price),
+            "predicted": float(y_pred[0]) # 1st step forecast (t+1)
+        })
+        
+    return history
+
 def rolling_backtest(coin, df, days=30, forecast_horizon=7):
     """
     Performs a rolling backtest over the last 'days'.

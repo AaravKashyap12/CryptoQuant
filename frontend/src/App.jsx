@@ -33,7 +33,12 @@ function App() {
   }, []);
 
   const loadData = async (coin) => {
-    setLoading(true); // Initial load only
+    setLoading(true);
+    // Reset stale data so user doesn't see old coin's price
+    setMarketData([]);
+    setPrediction(null);
+    setValidation(null);
+
     setRefreshData(coin);
   };
 
@@ -47,10 +52,9 @@ function App() {
     try {
       const mData = await getMarketData(coin);
       setMarketData(mData);
-      setLoading(false); // Creating specific loading state for chart vs prediction would be better, but this unblocks the view
+      setLoading(false); // Unblock view of chart
 
       // 2. Load AI Predictions (Slow)
-      // We do this separately so the chart shows up while the AI "thinks"
       const [predData, valData] = await Promise.all([
         getPrediction(coin),
         getValidation(coin).catch(e => null)
@@ -60,7 +64,7 @@ function App() {
       setValidation(valData);
     } catch (e) {
       console.error("Data Error", e);
-      setLoading(false); // Ensure loading stops on error
+      setLoading(false);
     }
   }
 
@@ -69,22 +73,37 @@ function App() {
     loadData(coin);
   };
 
-  // ... (Derived State Calculation Same as Before)
+  // ... (Derived State Calculation)
   const currentPrice = marketData.length > 0 ? marketData[marketData.length - 1].close : 0;
   const prevPrice = marketData.length > 1 ? marketData[marketData.length - 2].close : currentPrice;
   const priceChange = currentPrice - prevPrice;
-  const percentChange = (priceChange / prevPrice) * 100;
+  const percentChange = prevPrice !== 0 ? (priceChange / prevPrice) * 100 : 0;
 
   const nextDayPred = prediction ? prediction.forecast.mean[0] : 0;
   const forecastTrend = nextDayPred > currentPrice ? 'up' : 'down';
-  const forecastDiff = ((nextDayPred - currentPrice) / currentPrice) * 100;
+  const forecastDiff = currentPrice !== 0 ? ((nextDayPred - currentPrice) / currentPrice) * 100 : 0;
 
   const upper = prediction ? prediction.forecast.upper[0] : 0;
   const lower = prediction ? prediction.forecast.lower[0] : 0;
-  const spread = nextDayPred > 0 ? ((upper - lower) / nextDayPred) * 100 : 0;
+  const spread = nextDayPred !== 0 ? ((upper - lower) / nextDayPred) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-[#0e1117] text-gray-200 font-sans pb-20">
+    <div className="min-h-screen bg-[#0e1117] text-gray-200 font-sans pb-20 relative">
+
+      {/* Loading Overlay */}
+      {loading && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0e1117]/80 backdrop-blur-sm"
+        >
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+            <p className="text-blue-400 font-medium animate-pulse">Fetching {selectedCoin} market data...</p>
+          </div>
+        </motion.div>
+      )}
 
       <CoinSelector
         coins={coins}

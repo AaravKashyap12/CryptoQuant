@@ -1,9 +1,28 @@
 services:
+  # 1. API Service
   - type: web
     name: cryptoquant-api
     runtime: python
     region: ohio
     plan: free
     pythonVersion: "3.11.11"
-    buildCommand: "cd backend && pip install --upgrade pip setuptools wheel && pip install --no-cache-dir -r requirements.txt && python -m src.train_model"
-    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    # Build from root to access 'shared'
+    buildCommand: "pip install --upgrade pip && pip install -r services/api/requirements.txt"
+    # Run from root, point to module path
+    startCommand: "uvicorn services.api.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHONPATH
+        value: .
+
+  # 2. Worker Service (Training)
+  - type: worker
+    name: cryptoquant-worker
+    runtime: python
+    region: ohio
+    plan: free
+    pythonVersion: "3.11.11"
+    buildCommand: "pip install -r services/worker/requirements.txt"
+    startCommand: "python -m services.worker.main"
+    envVars:
+      - key: PYTHONPATH
+        value: .
