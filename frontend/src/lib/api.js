@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Auto-switch based on environment
-const PROD_DEFAULT = 'https://cryptoquant-api.onrender.com';
+const PROD_DEFAULT = 'https://cryptoquant-api-plez.onrender.com';
 const DEV_DEFAULT = 'http://localhost:8001';
 
 const rawUrl = import.meta.env.VITE_API_URL || (import.meta.env.MODE === 'development' ? DEV_DEFAULT : PROD_DEFAULT);
@@ -52,7 +52,11 @@ export const getValidation = async (coin) => {
 };
 
 export const trainModel = async (coin) => {
-    const response = await api.post(`/train/${coin}`);
+    const response = await api.post(`/train/${coin}`, {}, {
+        headers: {
+            'X-Admin-Key': 'dev-secret-key-123' // Default key, user can update in Vercel env later
+        }
+    });
     return response.data;
 };
 

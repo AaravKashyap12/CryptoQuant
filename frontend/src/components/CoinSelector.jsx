@@ -2,13 +2,28 @@ import React, { useState } from 'react';
 import { Activity, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export function CoinSelector({ coins, selectedCoin, onSelect }) {
+export function CoinSelector({ coins, selectedCoin, onSelect, onLogoClick }) {
     const [isOpen, setIsOpen] = useState(false);
+    const [clickCount, setClickCount] = useState(0);
+
+    const handleLogoClick = () => {
+        const newCount = clickCount + 1;
+        setClickCount(newCount);
+        if (newCount >= 5) {
+            onLogoClick();
+            setClickCount(0);
+        }
+        // Auto-reset after 2 seconds of no clicks
+        setTimeout(() => setClickCount(0), 2000);
+    };
 
     return (
         <div className="sticky top-0 z-50 bg-[#0e1117]/80 backdrop-blur-md border-b border-[#333] py-4">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-                <div className="flex items-center gap-3">
+                <div
+                    className="flex items-center gap-3 cursor-pointer select-none active:scale-95 transition-transform"
+                    onClick={handleLogoClick}
+                >
                     <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 p-2 rounded-lg">
                         <Activity className="text-black" size={24} />
                     </div>

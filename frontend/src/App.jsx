@@ -19,6 +19,15 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [training, setTraining] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem('isAdmin') === 'true');
+
+  const toggleAdmin = () => {
+    const newState = !isAdmin;
+    setIsAdmin(newState);
+    localStorage.setItem('isAdmin', newState);
+    if (newState) alert("Admin Mode Enabled! 🔓");
+    else alert("Admin Mode Disabled. 🔒");
+  };
 
   useEffect(() => {
     async function init() {
@@ -124,6 +133,7 @@ function App() {
         coins={coins}
         selectedCoin={selectedCoin}
         onSelect={handleCoinChange}
+        onLogoClick={toggleAdmin}
       />
 
       <ProjectInfo isOpen={showInfo} onClose={() => setShowInfo(false)} />
@@ -145,14 +155,16 @@ function App() {
             About
           </button>
 
-          <button
-            onClick={handleTrain}
-            disabled={training}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border border-orange-500/30 rounded-lg hover:bg-orange-500/10 transition-colors text-sm font-medium text-orange-400 disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={training ? "animate-spin" : ""} />
-            {training ? "Starting Training..." : "Train Model"}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleTrain}
+              disabled={training}
+              className="flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] border border-orange-500/30 rounded-lg hover:bg-orange-500/10 transition-colors text-sm font-medium text-orange-400 disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={training ? "animate-spin" : ""} />
+              {training ? "Starting Training..." : "Train Model"}
+            </button>
+          )}
 
           <button
             onClick={handleRefresh}
