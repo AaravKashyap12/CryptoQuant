@@ -5,7 +5,6 @@ from shared.utils.data_fetcher import fetch_klines
 # from shared.ml.predict import get_latest_prediction
 from shared.ml.registry import ModelRegistry
 from shared.ml.evaluate import execute_rolling_backtest
-from services.worker.tasks import train_single_coin
 from shared.ml.predict import predict_with_uncertainty
 from shared.utils.preprocess import prepare_inference_data
 
