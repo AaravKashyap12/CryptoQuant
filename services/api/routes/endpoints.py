@@ -64,10 +64,10 @@ def predict_coin(coin: str):
         if df is None:
             raise HTTPException(status_code=500, detail="Failed to fetch data needed for prediction")
         
-        result = get_latest_prediction(symbol, df)
+        result = get_latest_prediction(coin, df)
         
         if result is None:
-            raise HTTPException(status_code=404, detail="Model not found or prediction failed")
+            raise HTTPException(status_code=404, detail=f"Model not found for {coin} (Registry mismatch)")
             
         return {
             "coin": coin,
@@ -96,10 +96,10 @@ def get_model_metrics(coin: str):
     symbol = f"{coin}USDT"
     from shared.ml.registry import get_model_registry
     registry = get_model_registry()
-    _, _, _, metadata = registry.load_latest_model(symbol)
+    _, _, _, metadata = registry.load_latest_model(coin)
     
     if metadata is None:
-        raise HTTPException(status_code=404, detail="No model metadata found")
+        raise HTTPException(status_code=404, detail=f"No model metadata found for {coin}")
         
     return metadata
 
