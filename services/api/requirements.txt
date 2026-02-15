@@ -14,5 +14,5 @@ httpx==0.27.2
 ccxt==4.4.29
 boto3==1.35.36
 sqlalchemy==2.0.35
-# psycopg2-binary==2.9.9 # Uncomment for Production/Docker
+psycopg2-binary==2.9.9
 pydantic-settings==2.5.2
