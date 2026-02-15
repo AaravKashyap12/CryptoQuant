@@ -30,22 +30,23 @@ app.include_router(endpoints.router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup_event():
-    print(" [INFO] Server starting... Checking model status.")
+    print(" [INFO] Server starting... Background pre-warming initiated.")
     from shared.ml.registry import get_model_registry
     import asyncio
     
     registry = get_model_registry()
     
-    # Warm up cache for BTC and ETH
-    for coin in ["BTCUSDT", "ETHUSDT"]:
-        print(f" [INFO] Pre-warming cache for {coin}...")
-        registry.load_latest_model(coin)
-    
-    # Check if BTC model exists as a proxy for all
-    if registry.get_latest_version("BTCUSDT") == "v0.0.0":
-        print(" [WARN] No models found! Triggering background training via Worker...")
-        # TODO: Trigger worker job instead of internal training
-        pass
+    def prewarm_task():
+        for coin in ["BTCUSDT", "ETHUSDT"]:
+            try:
+                print(f" [INFO] Pre-warming {coin} model...")
+                registry.load_latest_model(coin)
+            except Exception as e:
+                print(f" [WARN] Could not pre-warm {coin}: {e}")
+        print(" [INFO] Pre-warming complete.")
+
+    # Start pre-warming in a background thread so it doesn't block server startup
+    asyncio.create_task(asyncio.to_thread(prewarm_task))
 
 # async def train_coin_async(coin): ... MOVED TO WORKER
 
