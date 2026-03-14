@@ -1,0 +1,86 @@
+name: Daily Model Retraining + Prediction Refresh
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 01:00 UTC — after markets settle
+  workflow_dispatch:
+    inputs:
+      coins:
+        description: 'Comma-separated coins to retrain (leave blank for all)'
+        required: false
+        default: ''
+      skip_training:
+        description: 'Skip retraining, only refresh predictions'
+        required: false
+        default: 'false'
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Retrain models locally and push to Supabase
+  # ─────────────────────────────────────────────
+  train:
+    name: Train LSTM models
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.skip_training != 'true' }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Train all models
+        env:
+          USE_S3: 'true'
+          USE_POSTGRES: 'true'
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          S3_ENDPOINT_URL: ${{ secrets.SUPABASE_S3_ENDPOINT }}
+          S3_ACCESS_KEY: ${{ secrets.SUPABASE_S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.SUPABASE_S3_SECRET_KEY }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+        run: python local_train.py
+
+  # ─────────────────────────────────────────────
+  # Job 2: Refresh precomputed predictions in DB
+  # Runs after training (or standalone when skip_training=true)
+  # ─────────────────────────────────────────────
+  refresh-predictions:
+    name: Refresh cached predictions
+    runs-on: ubuntu-latest
+    needs: [train]
+    if: always()   # run even if train was skipped
+    timeout-minutes: 10
+
+    steps:
+      - name: Trigger prediction batch on API
+        run: |
+          echo "Refreshing predictions on production API..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.API_BASE_URL }}/api/v1/admin/predictions/refresh" \
+            -H "X-API-Key: ${{ secrets.ADMIN_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            --max-time 15)
+          echo "Response status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Warning: prediction refresh returned HTTP $STATUS"
+            exit 1
+          fi
+
+      - name: Verify predictions updated
+        run: |
+          sleep 30  # give the background task time to complete
+          for coin in BTC ETH BNB SOL ADA; do
+            echo "Checking $coin..."
+            RESP=$(curl -s -X POST "${{ secrets.API_BASE_URL }}/api/v1/predict/$coin" \
+              -H "Content-Type: application/json" --max-time 10)
+            echo "$coin: $RESP" | head -c 200
+            echo ""
+          done

@@ -1,0 +1,42 @@
+# Python
+venv/
+.venv/
+.venv_train/
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+
+# Data and model artifacts
+data/
+registry.db
+models/
+*.keras
+*.h5
+*.pkl
+*.onnx
+
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage

@@ -1,0 +1,9 @@
+@echo off
+echo Starting CryptoQuant Analytics...
+
+echo Starting CryptoQuant Backend on port 8002...
+start cmd /k "call venv\Scripts\activate && set PYTHONPATH=%CD% && uvicorn services.api.main:app --host 127.0.0.1 --port 8002 --reload"
+
+echo Starting CryptoQuant Frontend...
+cd frontend
+start cmd /k "npm run dev"
