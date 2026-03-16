@@ -1,125 +1,138 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, BrainCircuit, TrendingUp, Activity, BarChart3 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronDown, ChevronUp, Cpu } from 'lucide-react';
 
-export function ModelExplainer({ trend, analysis }) {
-    const [isOpen, setIsOpen] = useState(true);
-
-    // Default analysis if none provided
-    const rsi = analysis?.rsi || 50;
-    const macd = analysis?.macd || 0;
-    const vol = analysis?.volatility || 0;
-    const fng = analysis?.fng || 50;
-
-    let sentiment = "Neutral";
-    let color = "text-gray-400";
-    if (trend === 'up') { sentiment = "BULLISH"; color = "text-green-500"; }
-    if (trend === 'down') { sentiment = "BEARISH"; color = "text-red-500"; }
-
-    const getFngLabel = (val) => {
-        if (val >= 75) return { label: "EXTREME GREED", color: "text-green-400" };
-        if (val >= 55) return { label: "GREED", color: "text-green-500/80" };
-        if (val <= 25) return { label: "EXTREME FEAR", color: "text-red-400" };
-        if (val <= 45) return { label: "FEAR", color: "text-red-500/80" };
-        return { label: "NEUTRAL", color: "text-gray-400" };
-    };
-
-    const fngMeta = getFngLabel(fng);
-
-    return (
-        <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl overflow-hidden">
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex justify-between items-center p-6 hover:bg-[#252525] transition-colors text-left"
-            >
-                <h2 className="text-lg font-bold flex items-center gap-3">
-                    <BrainCircuit className="text-yellow-500" />
-                    Model Analysis & Logic
-                </h2>
-                {isOpen ? <ChevronUp className="text-gray-500" /> : <ChevronDown className="text-gray-500" />}
-            </button>
-
-            {isOpen && (
-                <div className="p-6 pt-0 border-t border-[#333]/50">
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-
-                        {/* Logic 1: Sentiment */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Model Bias</span>
-                            <div className={`text-xl font-bold ${color} flex items-center gap-2`}>
-                                {sentiment}
-                                {trend === 'up' ? <TrendingUp size={20} /> : <Activity size={20} />}
-                            </div>
-                            <p className="text-xs text-gray-400 leading-relaxed">
-                                The Hybrid LSTM-CNN model has detected a {sentiment.toLowerCase()} structure in recent price action.
-                            </p>
-                        </div>
-
-                        {/* Logic 2: Fear & Greed Index */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Psychological Edge</span>
-                            <div className={`text-xl font-bold ${fngMeta.color} flex items-center gap-2`}>
-                                {fng} <span className="text-xs text-gray-500 font-normal">F&G Index</span>
-                            </div>
-                            <div className={`text-xs font-bold ${fngMeta.color} uppercase tracking-tighter`}>
-                                {fngMeta.label}
-                            </div>
-                            <p className="text-xs text-gray-400 leading-relaxed">
-                                Real-time Fear & Greed Index. The model uses this to gauge if the market is overextended emotionally.
-                            </p>
-                        </div>
-
-                        {/* Logic 3: RSI */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">RSI Momentum</span>
-                            <div className="text-xl font-bold text-white flex items-center gap-2">
-                                {rsi.toFixed(1)} <span className="text-xs text-gray-500 font-normal">/ 100</span>
-                            </div>
-                            <p className="text-xs text-gray-400 leading-relaxed">
-                                {rsi > 70 ? "Market is OVERBOUGHT. High chance of correction." :
-                                    rsi < 30 ? "Market is OVERSOLD. Potential bounce incoming." :
-                                        "Market momentum is neutral and stable."}
-                            </p>
-                        </div>
-
-                        {/* Logic 4: Trend Strength */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Trend Strength (MACD)</span>
-                            <div className={`text-xl font-bold ${macd > 0 ? "text-green-400" : "text-red-400"}`}>
-                                {macd > 0 ? "Positive" : "Negative"}
-                            </div>
-                            <p className="text-xs text-gray-400 leading-relaxed">
-                                Moving Average Convergence Divergence indicates {macd > 0 ? "buying" : "selling"} pressure is currently dominant.
-                            </p>
-                        </div>
-
-                        {/* Logic 5: Risk */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Volatility Risk</span>
-                            <div className="text-xl font-bold text-white shadow-yellow-500/20">
-                                ${vol.toFixed(2)}
-                            </div>
-                            <p className="text-xs text-gray-400 leading-relaxed">
-                                Average daily price movement. Higher volatility means wider confidence intervals in the forecast.
-                            </p>
-                        </div>
-
-                    </div>
-
-                    <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-start gap-3">
-                        <InfoIcon className="text-blue-400 shrink-0 mt-0.5" size={16} />
-                        <p className="text-xs text-blue-200">
-                            <strong>How it works:</strong> This prediction uses a <strong>Hybrid LSTM-CNN Ensemble</strong> trained on 7+ years of data.
-                            It factors in volume, volatility, technical indicators, and the <strong>Fear & Greed Index</strong> for a sentimental edge.
-                        </p>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+function GaugeBar({ value, max = 100, color }) {
+  const pct = Math.min(Math.max(value / max, 0), 1) * 100;
+  return (
+    <div style={{ height: '3px', background: 'var(--border)', borderRadius: '2px', position: 'relative', marginTop: '8px' }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${pct}%`, background: color, borderRadius: '2px', boxShadow: `0 0 6px ${color}80`, transition: 'width 0.8s ease' }} />
+    </div>
+  );
 }
 
-function InfoIcon({ className, size }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
-    )
+function StatBlock({ label, value, valueColor, sub, gauge, gaugeColor }) {
+  return (
+    <div style={{ padding: '14px 16px', background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: '3px' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)', letterSpacing: '0.15em', marginBottom: '8px' }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 600, color: valueColor || 'var(--text-primary)' }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', letterSpacing: '0.06em' }}>
+          {sub}
+        </div>
+      )}
+      {gauge != null && <GaugeBar value={gauge} color={gaugeColor || 'var(--accent)'} />}
+    </div>
+  );
+}
+
+export function ModelExplainer({ trend, analysis }) {
+  const [open, setOpen] = useState(true);
+
+  const rsi = analysis?.rsi || 50;
+  const macd = analysis?.macd || 0;
+  const vol = analysis?.volatility || 0;
+  const fng = analysis?.fng || 50;
+
+  const isUp = trend === 'up';
+
+  const fngColor = fng >= 60 ? 'var(--green)' : fng <= 40 ? 'var(--red)' : 'var(--yellow)';
+  const fngLabel = fng >= 75 ? 'EXTREME GREED' : fng >= 55 ? 'GREED' : fng <= 25 ? 'EXTREME FEAR' : fng <= 45 ? 'FEAR' : 'NEUTRAL';
+  const rsiColor = rsi > 70 ? 'var(--red)' : rsi < 30 ? 'var(--green)' : 'var(--text-primary)';
+  const rsiLabel = rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : 'NEUTRAL';
+
+  return (
+    <div className="t-card" style={{ overflow: 'hidden' }}>
+      {/* Header */}
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: 'transparent', border: 'none', cursor: 'pointer', borderBottom: open ? '1px solid var(--border)' : 'none' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Cpu size={14} color="var(--accent)" />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)', letterSpacing: '0.12em' }}>
+            MODEL ANALYSIS &amp; SIGNAL BREAKDOWN
+          </span>
+          <div style={{ padding: '2px 8px', background: isUp ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${isUp ? 'rgba(0,230,118,0.25)' : 'rgba(255,23,68,0.25)'}`, borderRadius: '2px' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', fontWeight: 600, color: isUp ? 'var(--green)' : 'var(--red)', letterSpacing: '0.12em' }}>
+              {isUp ? '▲ BULLISH' : '▼ BEARISH'}
+            </span>
+          </div>
+        </div>
+        {open
+          ? <ChevronUp size={14} color="var(--text-muted)" />
+          : <ChevronDown size={14} color="var(--text-muted)" />
+        }
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+
+              <StatBlock
+                label="AI BIAS"
+                value={isUp ? 'BULLISH' : 'BEARISH'}
+                valueColor={isUp ? 'var(--green)' : 'var(--red)'}
+                sub="Hybrid LSTM-CNN signal"
+              />
+
+              <StatBlock
+                label="FEAR & GREED INDEX"
+                value={fng.toString()}
+                valueColor={fngColor}
+                sub={fngLabel}
+                gauge={fng}
+                gaugeColor={fngColor}
+              />
+
+              <StatBlock
+                label="RSI MOMENTUM"
+                value={rsi.toFixed(1)}
+                valueColor={rsiColor}
+                sub={rsiLabel}
+                gauge={rsi}
+                gaugeColor={rsiColor}
+              />
+
+              <StatBlock
+                label="MACD TREND"
+                value={macd > 0 ? 'POSITIVE' : 'NEGATIVE'}
+                valueColor={macd > 0 ? 'var(--green)' : 'var(--red)'}
+                sub={macd > 0 ? 'Buying pressure dominant' : 'Selling pressure dominant'}
+              />
+
+              <StatBlock
+                label="VOLATILITY RISK"
+                value={`±${Number(vol).toFixed(1)}%`}
+                valueColor="var(--accent)"
+                sub="Est. daily price range"
+              />
+
+            </div>
+
+            {/* Info bar */}
+            <div style={{ margin: '0 20px 16px', padding: '10px 14px', background: 'rgba(0,212,255,0.04)', border: '1px solid rgba(0,212,255,0.12)', borderRadius: '3px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+              <span style={{ color: 'var(--accent)', fontSize: '12px', marginTop: '1px', flexShrink: 0 }}>ℹ</span>
+              <p style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-secondary)', lineHeight: 1.7, letterSpacing: '0.02em' }}>
+                Predictions generated by a <strong style={{ color: 'var(--accent)' }}>Hybrid LSTM-CNN Ensemble</strong> with Monte Carlo Dropout (n=20). 
+                Trained on 1500+ daily candles per coin using 15 engineered features including Wilder RSI, MACD, EMA, ATR, and the Fear &amp; Greed Index.
+                Confidence bands represent the 5th–95th percentile range across stochastic inference passes.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }

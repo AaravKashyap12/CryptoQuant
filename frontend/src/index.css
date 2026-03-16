@@ -1,23 +1,160 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
+  --bg-base:       #080b0f;
+  --bg-panel:      #0d1117;
+  --bg-card:       #0f1923;
+  --bg-hover:      #141f2b;
+  --border:        #1a2840;
+  --border-bright: #253a52;
+  --accent:        #00d4ff;
+  --accent-dim:    #0099bb;
+  --accent-glow:   rgba(0,212,255,0.12);
+  --green:         #00e676;
+  --green-dim:     rgba(0,230,118,0.1);
+  --red:           #ff1744;
+  --red-dim:       rgba(255,23,68,0.1);
+  --yellow:        #ffd600;
+  --yellow-dim:    rgba(255,214,0,0.08);
+  --text-primary:  #cdd9e5;
+  --text-secondary:#7a90a4;
+  --text-muted:    #3d5166;
+  --font-mono:     'IBM Plex Mono', monospace;
+  --font-sans:     'IBM Plex Sans', sans-serif;
   color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0e1117;
 }
 
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
+  margin: 0; padding: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
   min-height: 100vh;
 }
 
-#root {
-  width: 100%;
+#root { width: 100%; min-height: 100vh; }
+
+/* ── Grid bg ── */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0,212,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ── Cards ── */
+.t-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  position: relative;
+}
+.t-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.03) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* ── Accent top-line ── */
+.t-card-accent::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  opacity: 0.5;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+/* ── Glows ── */
+.glow-text-accent { text-shadow: 0 0 24px rgba(0,212,255,0.7); }
+.glow-text-green  { text-shadow: 0 0 24px rgba(0,230,118,0.6); }
+.glow-text-red    { text-shadow: 0 0 20px rgba(255,23,68,0.5); }
+.glow-text-yellow { text-shadow: 0 0 20px rgba(255,214,0,0.5); }
+
+/* ── Ticker tape ── */
+@keyframes ticker-move { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.ticker-inner { animation: ticker-move 50s linear infinite; }
+.ticker-inner:hover { animation-play-state: paused; }
+
+/* ── Cursor blink ── */
+@keyframes cursor-blink { 0%,100%{opacity:1} 49%{opacity:1} 50%{opacity:0} 99%{opacity:0} }
+.blink-cursor::after {
+  content: '_';
+  color: var(--accent);
+  animation: cursor-blink 1.1s step-end infinite;
+}
+
+/* ── Number flip ── */
+@keyframes num-in { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform: translateY(0); } }
+.num-in { animation: num-in 0.25s ease-out; }
+
+/* ── Live dot ── */
+@keyframes live-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,230,118,0.6)} 50%{box-shadow:0 0 0 5px rgba(0,230,118,0)} }
+.live-dot { animation: live-pulse 2s ease infinite; }
+
+/* ── Scanlines (subtle) ── */
+.scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.04) 3px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+}
+
+/* ── Recharts overrides ── */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line { stroke: var(--border) !important; }
+.recharts-tooltip-wrapper { outline: none !important; }
+
+/* ── Button base ── */
+.t-btn {
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 5px 12px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+.t-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+.t-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* ── Label tag ── */
+.t-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
 }

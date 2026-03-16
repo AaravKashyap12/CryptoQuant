@@ -1,54 +1,76 @@
+import React from 'react';
 import { motion } from 'framer-motion';
-import { cn } from '../lib/utils';
 import { Info } from 'lucide-react';
 
+export function MetricsCard({ title, value, subValue, trend, tooltip, indicator, accent, index = 0 }) {
+  const isUp = trend === 'up';
+  const isDown = trend === 'down';
 
-export function MetricsCard({ title, value, subValue, trend, tooltip, className, indicator }) {
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ scale: 1.02, borderColor: '#555' }}
-            transition={{ duration: 0.3 }}
-            className={cn("bg-[#1e1e1e] p-6 rounded-2xl border border-[#333] transition-colors group cursor-default", className)}
-        >
-            <div className="flex justify-between items-start mb-2">
-                <h3 className="text-gray-400 text-sm font-medium flex items-center gap-2">
-                    {indicator === 'live' && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                            </span>
-                            <span className="text-[10px] uppercase tracking-wider text-green-500 font-bold">Live</span>
-                        </div>
-                    )}
-                    {title}
-                    {tooltip && (
-                        <div className="group/tooltip relative">
-                            <Info size={14} className="text-gray-600 hover:text-gray-400 cursor-help" />
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-black border border-[#333] rounded-lg text-xs text-gray-300 opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none z-10 shadow-xl">
-                                {tooltip}
-                            </div>
-                        </div>
-                    )}
-                </h3>
-                {trend && (
-                    <span className={cn(
-                        "text-xs font-bold px-2 py-1 rounded-full border",
-                        trend === 'up' || trend.includes('Bullish')
-                            ? "bg-green-500/10 text-green-500 border-green-500/20"
-                            : "bg-red-500/10 text-red-500 border-red-500/20"
-                    )}>
-                        {trend === 'up' || trend.includes('Bullish') ? '↗ Bullish' : '↘ Bearish'}
-                    </span>
-                )}
-            </div>
+  const accentColor = accent
+    ? accent
+    : isUp ? 'var(--green)'
+    : isDown ? 'var(--red)'
+    : 'var(--accent)';
 
-            <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-white tracking-tight">{value}</span>
-                {subValue && <span className="text-sm text-gray-500 font-medium">{subValue}</span>}
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: index * 0.08 }}
+      className="t-card t-card-accent"
+      style={{ padding: '18px 20px', position: 'relative', overflow: 'hidden', cursor: 'default' }}
+    >
+      {/* Corner accent */}
+      <div style={{ position: 'absolute', top: 0, right: 0, width: '40px', height: '40px', background: `linear-gradient(225deg, ${accentColor}18 0%, transparent 70%)`, pointerEvents: 'none' }} />
+
+      {/* Label row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {indicator === 'live' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <div className="live-dot" style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--green)', letterSpacing: '0.12em' }}>LIVE</span>
             </div>
-        </motion.div>
-    );
+          )}
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            {title}
+          </span>
+          {tooltip && (
+            <div style={{ position: 'relative', display: 'inline-block' }} className="group/tip">
+              <Info size={11} color="var(--text-muted)" style={{ cursor: 'help' }} />
+              <div style={{ position: 'absolute', bottom: '140%', left: '50%', transform: 'translateX(-50%)', width: '180px', padding: '8px 10px', background: '#0a1520', border: '1px solid var(--border-bright)', borderRadius: '3px', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'normal', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.15s', zIndex: 50 }}
+                className="tip-box">
+                {tooltip}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Trend badge */}
+        {trend && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 8px', background: isUp ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${isUp ? 'rgba(0,230,118,0.2)' : 'rgba(255,23,68,0.2)'}`, borderRadius: '2px' }}>
+            <span style={{ fontSize: '9px', color: isUp ? 'var(--green)' : 'var(--red)' }}>{isUp ? '▲' : '▼'}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: isUp ? 'var(--green)' : 'var(--red)', letterSpacing: '0.1em' }}>
+              {isUp ? 'BULLISH' : 'BEARISH'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Value */}
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '26px', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+        {value}
+      </div>
+
+      {/* Sub value */}
+      {subValue && (
+        <div style={{ marginTop: '6px', fontFamily: 'var(--font-mono)', fontSize: '11px', color: accentColor, letterSpacing: '0.04em' }}>
+          {subValue}
+        </div>
+      )}
+
+      {/* Bottom line accent */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1px', background: `linear-gradient(90deg, transparent, ${accentColor}40, transparent)` }} />
+    </motion.div>
+  );
 }
