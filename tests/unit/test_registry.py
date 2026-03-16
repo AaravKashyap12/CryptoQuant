@@ -59,7 +59,7 @@ def registry(tmp_path, monkeypatch):
 
     # Reset storage singleton so it picks up new LOCAL_STORAGE_DIR
     import shared.ml.storage as stor
-    monkeypatch.setattr(stor, "_store_instance", None)
+    monkeypatch.setattr(stor, "get_artifact_store", lambda: LocalArtifactStore())
 
     # Import fresh registry (don't use the global singleton)
     from shared.ml.registry import ModelRegistry
