@@ -144,49 +144,6 @@ train_models.bat
 
 ---
 
-## Deployment
-
-### Backend — Render Starter
-
-Set in Render dashboard → Environment (not in `render.yaml` — keep secrets out of git):
-
-```
-DB_URL            → Supabase PostgreSQL connection string
-S3_ENDPOINT_URL   → https://<ref>.supabase.co/storage/v1/s3
-S3_ACCESS_KEY     → Supabase S3 access key
-S3_SECRET_KEY     → Supabase S3 secret key
-S3_BUCKET_NAME    → models
-REDIS_URL         → rediss://your-upstash-url
-ADMIN_API_KEY     → any secret string
-DEBUG             → false
-```
-
-### Frontend — Vercel
-
-Set `VITE_API_URL` to your Render API URL in Vercel dashboard → Settings → Environment Variables.
-
-### Cold Start Prevention
-
-Create a free job at [cron-job.org](https://cron-job.org) → URL: `https://your-api.onrender.com/health` → every 10 minutes. Keeps server warm 24/7 at zero cost.
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `USE_S3` | `false` | Supabase S3 artifact storage |
-| `USE_POSTGRES` | `false` | PostgreSQL instead of SQLite |
-| `USE_REDIS` | `false` | Redis cache layer |
-| `DEBUG` | `true` | Expose `/debug/*` — set `false` in prod |
-| `REDIS_PREDICTION_TTL` | `3600` | Prediction cache TTL (seconds) |
-| `REDIS_OHLCV_TTL` | `300` | OHLCV cache TTL (seconds) |
-| `REDIS_VALIDATION_TTL` | `86400` | Validation cache TTL (seconds) |
-| `PREDICTION_STALE_HOURS` | `24` | Hours before DB prediction is considered stale |
-| `ADMIN_API_KEY` | `""` | Header key for `/admin/*` endpoints |
-
----
-
 ## Project Structure
 
 ```
