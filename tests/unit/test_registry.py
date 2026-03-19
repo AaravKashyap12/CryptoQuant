@@ -57,7 +57,9 @@ def registry(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg_module.settings, "USE_POSTGRES",      False)
     monkeypatch.setattr(cfg_module.settings, "USE_REDIS",         False)
 
-    # Reset storage singleton so it picks up new LOCAL_STORAGE_DIR
+
+
+    from shared.ml.storage import LocalArtifactStore
     import shared.ml.storage as stor
     monkeypatch.setattr(stor, "get_artifact_store", lambda: LocalArtifactStore())
 
