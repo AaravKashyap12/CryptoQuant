@@ -1,6 +1,32 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Activity, Wifi } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
+
+function HexLogo({ size = 32 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="hg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#00d4ff"/>
+          <stop offset="100%" stopColor="#0066ff"/>
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" fill="#080b0f" rx="6"/>
+      <polygon points="16,2 27,8.5 27,23.5 16,30 5,23.5 5,8.5" fill="url(#hg)" opacity="0.12"/>
+      <polygon points="16,2 27,8.5 27,23.5 16,30 5,23.5 5,8.5" fill="none" stroke="url(#hg)" strokeWidth="1.5"/>
+      <line x1="9" y1="12" x2="9" y2="24" stroke="#1a3a5c" strokeWidth="0.8"/>
+      <rect x="7" y="15" width="4" height="5" fill="#ff4466" rx="0.5"/>
+      <line x1="15" y1="9" x2="15" y2="23" stroke="#1a3a5c" strokeWidth="0.8"/>
+      <rect x="13" y="11" width="4" height="7" fill="#00e676" rx="0.5"/>
+      <line x1="21" y1="10" x2="21" y2="22" stroke="#1a3a5c" strokeWidth="0.8"/>
+      <rect x="19" y="12" width="4" height="9" fill="#00e676" rx="0.5"/>
+      <polyline points="9,13 15,11 21,9" fill="none" stroke="#00d4ff" strokeWidth="1.5"/>
+      <circle cx="9" cy="13" r="1.2" fill="#00d4ff"/>
+      <circle cx="15" cy="11" r="1.2" fill="#00d4ff"/>
+      <circle cx="21" cy="9" r="1.2" fill="#00d4ff"/>
+    </svg>
+  );
+}
 
 const COIN_META = {
   BTC: { symbol: '₿', color: '#f7931a', label: 'BITCOIN' },
@@ -40,9 +66,7 @@ export function CoinSelector({ coins, selectedCoin, onSelect, livePrice, change2
 
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #00d4ff 0%, #0066ff 100%)', borderRadius: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 16px rgba(0,212,255,0.3)' }}>
-            <Activity size={18} color="#000" strokeWidth={2.5} />
-          </div>
+          <HexLogo size={32} />
           <div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.12em' }}>
               CRYPTOQUANT
