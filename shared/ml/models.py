@@ -28,6 +28,7 @@ Carlo Dropout inference: calling model(X, training=True) gives a stochastic
 sample; running n_iter such calls and averaging gives mean + uncertainty.
 """
 import tensorflow as tf
+import keras
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (
     Input, LSTM, Dense, Dropout,
@@ -37,6 +38,7 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.optimizers import Adam
 
 
+@keras.saving.register_keras_serializable(package="CryptoQuant")
 class BahdanauAttention(Layer):
     """
     Bahdanau-style additive attention over LSTM hidden states.
