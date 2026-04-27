@@ -60,7 +60,7 @@ def add_technical_indicators(df):
     return df
 
 
-def add_sentiment_indicators(df, sentiment_df=None):
+def add_sentiment_indicators(df, sentiment_df=None, coin=None):
     """
     Merges sentiment data into the main dataframe based on date.
 
@@ -74,6 +74,10 @@ def add_sentiment_indicators(df, sentiment_df=None):
 
     if 'sentiment_score' not in df.columns:
         df['sentiment_score'] = 50.0
+
+    if coin in {"BNB", "ADA"}:
+        df['sentiment_score'] = 50.0
+        return df
 
     if sentiment_df is not None and not sentiment_df.empty:
         try:

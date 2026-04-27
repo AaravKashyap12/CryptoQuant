@@ -9,7 +9,17 @@ def create_scaler():
     """
     return MinMaxScaler(feature_range=(0, 1))
 
-def prepare_training_data(df, lookback=60, target_col='close', forecast_horizon=1, sentiment_df=None):
+def prepare_training_data(
+    df,
+    lookback=60,
+    target_col='close',
+    forecast_horizon=1,
+    sentiment_df=None,
+    coin=None,
+    scaler=None,
+    target_scaler=None,
+    fit_scalers=True,
+):
     """
     Prepare data for LSTM model training with MULTIPLE features.
     
@@ -28,7 +38,7 @@ def prepare_training_data(df, lookback=60, target_col='close', forecast_horizon=
     """
     # 1. Add Indicators
     df = add_technical_indicators(df)
-    df = add_sentiment_indicators(df, sentiment_df)
+    df = add_sentiment_indicators(df, sentiment_df, coin=coin)
 
     # 2. Select Features
     feature_cols = get_feature_columns()
@@ -45,11 +55,17 @@ def prepare_training_data(df, lookback=60, target_col='close', forecast_horizon=
     target = df[[target_col]].values
     
     # 3. Fit Scalers (now on clean, NaN-free data)
-    scaler = create_scaler()
-    scaled_data = scaler.fit_transform(data)
-    
-    target_scaler = create_scaler()
-    scaled_target = target_scaler.fit_transform(target)
+    if scaler is None:
+        scaler = create_scaler()
+    if target_scaler is None:
+        target_scaler = create_scaler()
+
+    if fit_scalers:
+        scaled_data = scaler.fit_transform(data)
+        scaled_target = target_scaler.fit_transform(target)
+    else:
+        scaled_data = scaler.transform(data)
+        scaled_target = target_scaler.transform(target)
     
     X, y = [], []
     
@@ -68,14 +84,14 @@ def prepare_training_data(df, lookback=60, target_col='close', forecast_horizon=
     
     return X, y, scaler, target_scaler
 
-def prepare_inference_data(df, scaler, lookback=60, sentiment_df=None):
+def prepare_inference_data(df, scaler, lookback=60, sentiment_df=None, coin=None):
     """
     Prepare data for inference (last sequence).
     """
     # 1. Add Indicators
     df.index.name = "open_time"
     df = add_technical_indicators(df)
-    df = add_sentiment_indicators(df, sentiment_df)
+    df = add_sentiment_indicators(df, sentiment_df, coin=coin)
 
     # FIX: Drop NaN rows so the scaler.transform sees the same feature
     # distribution it was fitted on during training.

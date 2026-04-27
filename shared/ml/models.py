@@ -37,6 +37,8 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.optimizers import Adam
 
+L2_REG = tf.keras.regularizers.l2(1e-4)
+
 
 @keras.saving.register_keras_serializable(package="CryptoQuant")
 class BahdanauAttention(Layer):
@@ -60,9 +62,9 @@ class BahdanauAttention(Layer):
         super().__init__(**kwargs)
         self.units = units
         # W1 projects each hidden state into attention space
-        self.W1 = Dense(units, use_bias=False, name=f"{self.name}_W1")
+        self.W1 = Dense(units, use_bias=False, kernel_regularizer=L2_REG, name=f"{self.name}_W1")
         # v scores the projected state down to a scalar
-        self.v  = Dense(1,     use_bias=False, name=f"{self.name}_v")
+        self.v  = Dense(1,     use_bias=False, kernel_regularizer=L2_REG, name=f"{self.name}_v")
 
     def call(self, hidden_states):
         """
@@ -90,7 +92,13 @@ class BahdanauAttention(Layer):
         return config
 
 
-def build_model(input_shape, output_steps: int = 7, dropout_rate: float = 0.2) -> Model:
+def build_model(
+    input_shape,
+    output_steps: int = 7,
+    dropout_rate: float = 0.3,
+    lstm_units: int = 128,
+    dense_units: int = 64,
+) -> Model:
     """
     Parallel LSTM + CNN with Bahdanau Attention and MC Dropout.
 
@@ -117,7 +125,14 @@ def build_model(input_shape, output_steps: int = 7, dropout_rate: float = 0.2) -
 
     # --- LSTM Branch: captures long-range trend ---
     # return_sequences=True so attention can see all timestep hidden states
-    l = LSTM(128, return_sequences=True, name="lstm_1")(inputs)
+    l = LSTM(
+        lstm_units,
+        return_sequences=True,
+        recurrent_dropout=0.2,
+        kernel_regularizer=L2_REG,
+        recurrent_regularizer=L2_REG,
+        name="lstm_1",
+    )(inputs)
     l = Dropout(dropout_rate, name="lstm_drop")(l, training=True)
 
     # Attention: score each timestep, return weighted context vector
@@ -135,18 +150,24 @@ def build_model(input_shape, output_steps: int = 7, dropout_rate: float = 0.2) -
 
     # --- Merge & Head (unchanged) ---
     merged = Concatenate(name="merge")([l, c])
-    x = Dense(64, name="dense_1")(merged)
+    x = Dense(dense_units, kernel_regularizer=L2_REG, name="dense_1")(merged)
     x = LeakyReLU(alpha=0.1, name="dense_act_1")(x)
-    x = Dense(32, name="dense_2")(x)
+    x = Dense(max(dense_units // 2, 16), kernel_regularizer=L2_REG, name="dense_2")(x)
     x = LeakyReLU(alpha=0.1, name="dense_act_2")(x)
-    outputs = Dense(output_steps, name="forecast")(x)
+    outputs = Dense(output_steps, kernel_regularizer=L2_REG, name="forecast")(x)
 
     model = Model(inputs=inputs, outputs=outputs, name="CryptoDynamic")
     model.compile(optimizer=Adam(learning_rate=0.0008), loss="mse", metrics=["mae"])
     return model
 
 
-def build_hybrid_model(input_shape, output_steps: int = 7, dropout_rate: float = 0.2) -> Model:
+def build_hybrid_model(
+    input_shape,
+    output_steps: int = 7,
+    dropout_rate: float = 0.3,
+    lstm_units: int = 128,
+    dense_units: int = 64,
+) -> Model:
     """
     Hybrid LSTM + 1D-CNN ensemble with Bahdanau Attention and MC Dropout.
 
@@ -168,10 +189,24 @@ def build_hybrid_model(input_shape, output_steps: int = 7, dropout_rate: float =
 
     # ── LSTM branch ──────────────────────────────────────────────────────────
     # First LSTM compresses sequence — return_sequences=True feeds into second
-    lstm = LSTM(64, return_sequences=True, name="lstm_1")(inputs)
+    lstm = LSTM(
+        lstm_units,
+        return_sequences=True,
+        recurrent_dropout=0.2,
+        kernel_regularizer=L2_REG,
+        recurrent_regularizer=L2_REG,
+        name="lstm_1",
+    )(inputs)
     lstm = Dropout(dropout_rate, name="lstm_drop_1")(lstm, training=True)
     # Second LSTM: return_sequences=True so attention can see all hidden states
-    lstm = LSTM(32, return_sequences=True, name="lstm_2")(lstm)
+    lstm = LSTM(
+        max(lstm_units // 2, 16),
+        return_sequences=True,
+        recurrent_dropout=0.2,
+        kernel_regularizer=L2_REG,
+        recurrent_regularizer=L2_REG,
+        name="lstm_2",
+    )(lstm)
     lstm = Dropout(dropout_rate, name="lstm_drop_2")(lstm, training=True)
 
     # Attention: score each timestep, return weighted context vector
@@ -190,10 +225,10 @@ def build_hybrid_model(input_shape, output_steps: int = 7, dropout_rate: float =
     # ── Merge (unchanged) ────────────────────────────────────────────────────
     merged = Concatenate(name="merge")([lstm, cnn])
 
-    x = Dense(64, activation="relu", name="dense_1")(merged)
+    x = Dense(dense_units, activation="relu", kernel_regularizer=L2_REG, name="dense_1")(merged)
     x = Dropout(dropout_rate, name="dense_drop")(x, training=True)
 
-    outputs = Dense(output_steps, name="forecast")(x)
+    outputs = Dense(output_steps, kernel_regularizer=L2_REG, name="forecast")(x)
 
     model = Model(inputs=inputs, outputs=outputs, name="CryptoHybrid")
     model.compile(optimizer=Adam(learning_rate=0.001), loss="mse", metrics=["mae"])

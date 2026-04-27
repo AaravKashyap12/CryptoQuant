@@ -11,6 +11,11 @@ router = APIRouter()
 COINS = ["BTC", "ETH", "BNB", "SOL", "ADA"]
 
 
+def _coin_fetch_limit(coin: str, default: int = 500) -> int:
+    from shared.ml.training import COIN_CONFIG
+    return COIN_CONFIG.get(coin, {}).get("limit", default)
+
+
 # ---------------------------------------------------------------------------
 # Helper: verify admin API key for protected endpoints
 # ---------------------------------------------------------------------------
@@ -27,6 +32,17 @@ def _require_admin(x_api_key: Optional[str] = Header(None)):
 @router.get("/coins", response_model=List[str])
 def get_supported_coins():
     return COINS
+
+
+@router.get("/sentiment")
+def get_sentiment():
+    from shared.utils.data_fetcher import fetch_sentiment_data
+
+    df = fetch_sentiment_data(limit=1)
+    if df is None or df.empty:
+        return {"sentiment_score": 50.0}
+
+    return {"sentiment_score": float(df["sentiment_score"].iloc[-1])}
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +136,11 @@ def predict_coin(coin: str):
         from shared.utils.data_fetcher import fetch_klines
         from shared.ml.predict import get_latest_prediction
 
-        df = fetch_klines(f"{coin}USDT", limit=500)
+        df = fetch_klines(f"{coin}USDT", limit=_coin_fetch_limit(coin))
         if df is None:
             raise HTTPException(status_code=500, detail="Failed to fetch data for prediction")
 
-        # n_iter=5 for low latency on user-facing requests
-        result = get_latest_prediction(coin, df, n_iter=5)
+        result = get_latest_prediction(coin, df, n_iter=10)
         if result is None:
             raise HTTPException(status_code=404, detail=f"No model found for {coin}")
 
@@ -194,7 +209,7 @@ def validate_model_endpoint(coin: str, days: int = 30):
     from shared.utils.data_fetcher import fetch_klines
     from shared.ml.evaluate import execute_rolling_backtest
 
-    df = fetch_klines(f"{coin}USDT", limit=200 + days)
+    df = fetch_klines(f"{coin}USDT", limit=max(_coin_fetch_limit(coin), 200 + days))
     if df is None:
         raise HTTPException(status_code=500, detail="Failed to fetch data")
 
@@ -244,7 +259,7 @@ def refresh_prediction(coin: str, x_api_key: Optional[str] = Header(None)):
     from shared.ml.registry import get_model_registry
     from shared.ml.cache import cache
 
-    df = fetch_klines(f"{coin}USDT", limit=500)
+    df = fetch_klines(f"{coin}USDT", limit=_coin_fetch_limit(coin))
     if df is None:
         raise HTTPException(status_code=500, detail="Data fetch failed")
 

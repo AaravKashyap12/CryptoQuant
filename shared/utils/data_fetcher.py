@@ -151,6 +151,10 @@ def fetch_klines(symbol: str, interval: str = None, limit: int = 500) -> pd.Data
     # --- Populate caches ---
     expires_at = time.time() + ohlcv_ttl
     _LOCAL_OHLCV_CACHE[cache_key] = (expires_at, df)
+    now = time.time()
+    for key, (expiry, _) in list(_LOCAL_OHLCV_CACHE.items()):
+        if now >= expiry:
+            del _LOCAL_OHLCV_CACHE[key]
 
     if settings.USE_REDIS:
         from shared.ml.cache import cache
@@ -249,8 +253,6 @@ def get_conversion_rate(target_currency: str) -> float:
     if target_currency == "USD":
         return 1.0
     rate = get_live_rate(target_currency)
-    if rate and target_currency == "INR":
-        rate *= 1.04
     if rate:
         return rate
     return {"EUR": 0.92, "GBP": 0.79, "INR": 94.0, "AUD": 1.55, "JPY": 155.0, "CAD": 1.38}.get(

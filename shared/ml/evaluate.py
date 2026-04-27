@@ -49,7 +49,7 @@ def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, foreca
     df_full = add_technical_indicators(df_proc)
 
     sentiment_df = fetch_sentiment_data(limit=200)
-    df_full = add_sentiment_indicators(df_full, sentiment_df)
+    df_full = add_sentiment_indicators(df_full, sentiment_df, coin=coin)
 
     feature_cols = get_feature_columns()
 
@@ -145,8 +145,16 @@ def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray, target_scaler)
         y_test.reshape(-1, 1)
     ).reshape(n_samples, horizon)
 
+    if n_samples > 1:
+        actual_dir = np.sign(y_test_inv[1:, 0] - y_test_inv[:-1, 0])
+        pred_dir = np.sign(y_pred_inv[1:, 0] - y_test_inv[:-1, 0])
+        directional_accuracy = np.mean(pred_dir == actual_dir)
+    else:
+        directional_accuracy = 0.0
+
     return {
         "mae":     float(mean_absolute_error(y_test_inv.flatten(), y_pred_inv.flatten())),
         "rmse":    float(np.sqrt(mean_squared_error(y_test_inv.flatten(), y_pred_inv.flatten()))),
+        "directional_accuracy": float(directional_accuracy),
         "horizon": int(horizon),
     }

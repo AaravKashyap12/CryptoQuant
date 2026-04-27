@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "Crypto Price Predictor"
-    DEBUG: bool = True
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     # Feature Flags
     USE_S3: bool = os.getenv("USE_S3", "False").lower() == "true"

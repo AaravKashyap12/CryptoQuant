@@ -69,4 +69,9 @@ export const getValidation = async (coin, days = 30) => {
   return res.data;
 };
 
+export const getSentiment = async () => {
+  const res = await api.get('/sentiment');
+  return res.data;
+};
+
 export default api;

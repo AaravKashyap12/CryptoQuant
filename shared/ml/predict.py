@@ -52,12 +52,12 @@ def predict_with_uncertainty(model, X: np.ndarray, n_iter: int = 10):
 # ---------------------------------------------------------------------------
 # Main prediction entry point
 # ---------------------------------------------------------------------------
-def get_latest_prediction(coin: str, df, n_iter: int = 5):
+def get_latest_prediction(coin: str, df, n_iter: int = 10):
     """
     Load the latest model for *coin*, prepare inference data from *df*,
     run MC Dropout, and return the result dict.
 
-    n_iter=5 for user-facing requests (fast).
+    n_iter=10 for user-facing requests.
     n_iter=20 for scheduled batch jobs (higher quality).
     """
     registry = get_model_registry()
@@ -74,7 +74,7 @@ def get_latest_prediction(coin: str, df, n_iter: int = 5):
     from shared.utils.data_fetcher import fetch_sentiment_data
     sentiment_df = fetch_sentiment_data(limit=500)
 
-    X_input = prepare_inference_data(df, scaler, lookback=lookback, sentiment_df=sentiment_df)
+    X_input = prepare_inference_data(df, scaler, lookback=lookback, sentiment_df=sentiment_df, coin=coin)
 
     # FIX: Explicit shape guard before inference.
     # A mismatch between model's expected input and X_input produces silent wrong
@@ -125,9 +125,8 @@ def run_prediction_batch(coins=None, n_iter: int = 20):
 
     for coin in targets:
         try:
-            # FIX: Use configured limits per coin, not a generic 500 limit which was missing data for BNB/ADA
             from shared.ml.training import COIN_CONFIG
-            limit = COIN_CONFIG.get(coin, {}).get("limit", 500) if "COIN_CONFIG" in locals() or "COIN_CONFIG" in globals() else 500
+            limit = COIN_CONFIG.get(coin, {}).get("limit", 500)
             
             df = fetch_klines(f"{coin}USDT", limit=limit)
             if df is None:
