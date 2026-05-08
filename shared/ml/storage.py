@@ -130,15 +130,11 @@ class LocalArtifactStore(ArtifactStore):
 
     def load_model_to_path(self, key_prefix: str, download_dir: str) -> str:
         src = os.path.join(self.base_dir, key_prefix, "model.keras")
-        dst = os.path.join(download_dir, "model.keras")
-        shutil.copy2(src, dst)
-        return dst
+        return src
 
     def load_joblib(self, key_prefix: str, filename: str, download_dir: str):
         src = os.path.join(self.base_dir, key_prefix, filename)
-        dst = os.path.join(download_dir, filename)
-        shutil.copy2(src, dst)
-        return joblib.load(dst)
+        return joblib.load(src)
 
     def save_tfjs_model(self, model, key_prefix: str):
         try:

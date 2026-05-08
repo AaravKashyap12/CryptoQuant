@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     USE_S3: bool = os.getenv("USE_S3", "False").lower() == "true"
     USE_POSTGRES: bool = os.getenv("USE_POSTGRES", "False").lower() == "true"
     USE_REDIS: bool = os.getenv("USE_REDIS", "False").lower() == "true"
+    ALLOW_MOCK_DATA: bool = os.getenv("ALLOW_MOCK_DATA", "false").lower() == "true"
 
     # Database (Postgres / Supabase)
     DB_URL: str = os.getenv("DB_URL", os.getenv("SUPABASE_DB_URL", "postgresql://postgres:password@db.supabase.co:5432/postgres"))
@@ -36,6 +37,11 @@ class Settings(BaseSettings):
 
     # Prediction store — how old a cached prediction can be before re-running inference
     PREDICTION_STALE_HOURS: int = int(os.getenv("PREDICTION_STALE_HOURS", "24"))
+
+    # On-chain data provider
+    ONCHAIN_PROVIDER: str = os.getenv("ONCHAIN_PROVIDER", "free").lower()
+    GLASSNODE_API_KEY: str = os.getenv("GLASSNODE_API_KEY", "")
+    ONCHAIN_CACHE_TTL: int = int(os.getenv("ONCHAIN_CACHE_TTL", "3600"))
 
     # Admin
     ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "")

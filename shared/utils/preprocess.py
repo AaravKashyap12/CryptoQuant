@@ -1,13 +1,18 @@
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
-from shared.utils.features import add_technical_indicators, get_feature_columns, add_sentiment_indicators
+from sklearn.preprocessing import RobustScaler
+from shared.utils.features import (
+    add_market_context_indicators,
+    add_sentiment_indicators,
+    add_technical_indicators,
+    get_feature_columns,
+)
 
 def create_scaler():
     """
-    Create a MinMaxScaler for normalizing data.
+    Create a RobustScaler for normalizing financial time-series data.
     """
-    return MinMaxScaler(feature_range=(0, 1))
+    return RobustScaler(quantile_range=(25.0, 75.0))
 
 def prepare_training_data(
     df,
@@ -15,6 +20,7 @@ def prepare_training_data(
     target_col='close',
     forecast_horizon=1,
     sentiment_df=None,
+    market_context_df=None,
     coin=None,
     scaler=None,
     target_scaler=None,
@@ -33,12 +39,13 @@ def prepare_training_data(
     Returns:
         X (np.array): Input sequences [samples, lookback, n_features].
         y (np.array): Target values [samples, forecast_horizon].
-        scaler (MinMaxScaler): Fitted scaler for the FEATURES.
-        target_scaler (MinMaxScaler): Fitted scaler for the TARGET (for inverse transform).
+        scaler (RobustScaler): Fitted scaler for the FEATURES.
+        target_scaler (RobustScaler): Fitted scaler for the TARGET (for inverse transform).
     """
     # 1. Add Indicators
     df = add_technical_indicators(df)
     df = add_sentiment_indicators(df, sentiment_df, coin=coin)
+    df = add_market_context_indicators(df, market_context_df)
 
     # 2. Select Features
     feature_cols = get_feature_columns()
@@ -84,7 +91,7 @@ def prepare_training_data(
     
     return X, y, scaler, target_scaler
 
-def prepare_inference_data(df, scaler, lookback=60, sentiment_df=None, coin=None):
+def prepare_inference_data(df, scaler, lookback=60, sentiment_df=None, market_context_df=None, coin=None):
     """
     Prepare data for inference (last sequence).
     """
@@ -92,24 +99,26 @@ def prepare_inference_data(df, scaler, lookback=60, sentiment_df=None, coin=None
     df.index.name = "open_time"
     df = add_technical_indicators(df)
     df = add_sentiment_indicators(df, sentiment_df, coin=coin)
+    df = add_market_context_indicators(df, market_context_df)
 
-    # FIX: Drop NaN rows so the scaler.transform sees the same feature
-    # distribution it was fitted on during training.
-    df = df.dropna()
-    
     # 2. Select Features
     feature_cols = get_feature_columns()
+    df = df.dropna(subset=feature_cols)
     data = df[feature_cols].values
 
     # FIX: Guard against feature count mismatch between train and inference.
     # A silent shape mismatch produces wrong scaled values without raising an error.
     expected_features = scaler.n_features_in_
-    if data.shape[1] != expected_features:
+    if data.shape[1] < expected_features:
         raise ValueError(
             f"Feature count mismatch: scaler expects {expected_features} features, "
             f"but inference data has {data.shape[1]}. "
             f"Re-check get_feature_columns() consistency between training and inference."
         )
+    if data.shape[1] > expected_features:
+        # Backward compatibility for older saved models that were trained before
+        # the market-context features were appended to the feature list.
+        data = data[:, :expected_features]
     
     # 3. Scale
     scaled_data = scaler.transform(data)

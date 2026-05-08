@@ -128,7 +128,7 @@ def build_model(
     l = LSTM(
         lstm_units,
         return_sequences=True,
-        recurrent_dropout=0.2,
+        recurrent_dropout=0.0,
         kernel_regularizer=L2_REG,
         recurrent_regularizer=L2_REG,
         name="lstm_1",
@@ -157,7 +157,7 @@ def build_model(
     outputs = Dense(output_steps, kernel_regularizer=L2_REG, name="forecast")(x)
 
     model = Model(inputs=inputs, outputs=outputs, name="CryptoDynamic")
-    model.compile(optimizer=Adam(learning_rate=0.0008), loss="mse", metrics=["mae"])
+    model.compile(optimizer=Adam(learning_rate=0.0008, clipnorm=1.0), loss="mse", metrics=["mae"])
     return model
 
 
@@ -192,7 +192,7 @@ def build_hybrid_model(
     lstm = LSTM(
         lstm_units,
         return_sequences=True,
-        recurrent_dropout=0.2,
+        recurrent_dropout=0.0,
         kernel_regularizer=L2_REG,
         recurrent_regularizer=L2_REG,
         name="lstm_1",
@@ -202,7 +202,7 @@ def build_hybrid_model(
     lstm = LSTM(
         max(lstm_units // 2, 16),
         return_sequences=True,
-        recurrent_dropout=0.2,
+        recurrent_dropout=0.0,
         kernel_regularizer=L2_REG,
         recurrent_regularizer=L2_REG,
         name="lstm_2",
@@ -231,5 +231,5 @@ def build_hybrid_model(
     outputs = Dense(output_steps, kernel_regularizer=L2_REG, name="forecast")(x)
 
     model = Model(inputs=inputs, outputs=outputs, name="CryptoHybrid")
-    model.compile(optimizer=Adam(learning_rate=0.001), loss="mse", metrics=["mae"])
+    model.compile(optimizer=Adam(learning_rate=0.001, clipnorm=1.0), loss="mse", metrics=["mae"])
     return model

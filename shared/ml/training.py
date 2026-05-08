@@ -1,33 +1,59 @@
 """
-Training pipeline for CryptoQuant LSTM models.
+Training pipeline for CryptoQuant models.
 
-train_single_coin   - Full pipeline for one coin: fetch, preprocess, train, evaluate, register.
-train_job_all_coins - Sequential training for all supported coins.
+Primary model: Hybrid LSTM-CNN.
+Secondary model: Gradient-boosted tabular baseline on the latest engineered row.
+Served forecast: blended ensemble of neural, tree, and persistence.
 """
 import logging
 from datetime import datetime
 
 import numpy as np
 
-from shared.core.config import settings
 from shared.ml.evaluate import evaluate_model
 from shared.ml.models import build_hybrid_model
 from shared.ml.registry import get_model_registry
-from shared.utils.data_fetcher import fetch_klines
-from shared.utils.features import add_sentiment_indicators, add_technical_indicators, get_feature_columns
+from shared.ml.tabular import assert_no_sequence_target_overlap, train_tabular_model
+from shared.utils.data_fetcher import fetch_klines, fetch_market_context_data
+from shared.utils.features import (
+    add_market_context_indicators,
+    add_sentiment_indicators,
+    add_technical_indicators,
+    get_feature_columns,
+)
 from shared.utils.preprocess import create_scaler
 
 logger = logging.getLogger(__name__)
 
 COINS = ["BTC", "ETH", "BNB", "SOL", "ADA"]
+FORECAST_HORIZON = 1
+MIN_DIRECTIONAL_ACCURACY_TO_CACHE = 0.50
 
 COIN_CONFIG = {
-    "BTC": {"limit": 500, "lookback": 60, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
-    "ETH": {"limit": 500, "lookback": 60, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
-    "SOL": {"limit": 400, "lookback": 30, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
-    "BNB": {"limit": 350, "lookback": 20, "dropout_rate": 0.4, "units": 64, "dense_units": 32},
-    "ADA": {"limit": 350, "lookback": 20, "dropout_rate": 0.4, "units": 64, "dense_units": 32},
+    "BTC": {"limit": 5000, "lookback": 60, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
+    "ETH": {"limit": 5000, "lookback": 60, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
+    "SOL": {"limit": 5000, "lookback": 60, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
+    "BNB": {"limit": 5000, "lookback": 45, "dropout_rate": 0.35, "units": 64, "dense_units": 32},
+    "ADA": {"limit": 5000, "lookback": 45, "dropout_rate": 0.35, "units": 64, "dense_units": 32},
 }
+
+ENSEMBLE_WEIGHTS = {"neural": 0.5, "tree": 0.3, "persistence": 0.2}
+
+
+def _is_eligible_for_cached_serving(metrics: dict) -> bool:
+    directional_accuracy = float(metrics.get("directional_accuracy", 0.0))
+    mae = float(metrics.get("mae", np.inf))
+    persistence_mae = float(metrics.get("persistence_mae", np.inf))
+
+    if directional_accuracy < MIN_DIRECTIONAL_ACCURACY_TO_CACHE:
+        return False
+    if not (np.isfinite(mae) and np.isfinite(persistence_mae) and persistence_mae > 0):
+        return False
+    return mae <= persistence_mae * 3.0
+
+
+def metrics_allow_cached_serving(metrics: dict | None) -> bool:
+    return _is_eligible_for_cached_serving(metrics or {})
 
 
 def _prepare_time_series_splits(
@@ -36,16 +62,15 @@ def _prepare_time_series_splits(
     lookback: int,
     forecast_horizon: int,
     sentiment_df=None,
+    market_context_df=None,
     target_col: str = "close",
 ):
     """
-    Build chronological train/val/test sequence splits without scaler leakage.
-
-    Scalers fit only on the training-era rows used by training sequences and
-    labels. Validation and test rows are transformed with those fitted scalers.
+    Build chronological train/val/test splits without scaler leakage.
     """
     df = add_technical_indicators(df)
     df = add_sentiment_indicators(df, sentiment_df, coin=coin)
+    df = add_market_context_indicators(df, market_context_df)
 
     feature_cols = get_feature_columns()
     df = df.dropna(subset=feature_cols)
@@ -61,6 +86,7 @@ def _prepare_time_series_splits(
 
     train_end = int(len(sample_ends) * 0.7)
     val_end = int(len(sample_ends) * 0.8)
+    gap = max(forecast_horizon, 1)
 
     feature_fit_end = sample_ends[train_end - 1]
     target_fit_end = sample_ends[train_end - 1] + forecast_horizon
@@ -76,6 +102,7 @@ def _prepare_time_series_splits(
 
     X, y = [], []
     for end in sample_ends:
+        assert_no_sequence_target_overlap(end, lookback, forecast_horizon)
         X.append(scaled_data[end - lookback:end])
         y.append(scaled_target[end:end + forecast_horizon, 0])
 
@@ -85,34 +112,23 @@ def _prepare_time_series_splits(
     return (
         X[:train_end],
         y[:train_end],
-        X[train_end:val_end],
-        y[train_end:val_end],
-        X[val_end:],
-        y[val_end:],
+        X[train_end + gap:val_end],
+        y[train_end + gap:val_end],
+        X[val_end + gap:],
+        y[val_end + gap:],
         scaler,
         target_scaler,
     )
 
 
 def train_single_coin(coin_or_symbol: str, sentiment_df=None):
-    """
-    Full training pipeline for a single coin.
-
-    Steps:
-        1. Fetch OHLCV data using per-coin COIN_CONFIG.
-        2. Engineer features, fit scalers on training rows only, and split 70/10/20.
-        3. Build the hybrid LSTM-CNN model with per-coin capacity/dropout.
-        4. Train with early stopping, validation-only model selection, and recency weights.
-        5. Evaluate on untouched test sequences.
-        6. Register model artifacts and metrics.
-    """
     symbol = coin_or_symbol if coin_or_symbol.endswith("USDT") else f"{coin_or_symbol}USDT"
     coin = symbol.replace("USDT", "")
     print(f"\n--- Training {symbol} ---")
 
     coin_cfg = COIN_CONFIG.get(
         coin,
-        {"limit": 500, "lookback": 30, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
+        {"limit": 5000, "lookback": 60, "dropout_rate": 0.3, "units": 128, "dense_units": 64},
     )
     fetch_limit = coin_cfg["limit"]
     lookback = coin_cfg["lookback"]
@@ -129,6 +145,8 @@ def train_single_coin(coin_or_symbol: str, sentiment_df=None):
         logger.error(f"Refusing to train {coin} on MOCK data. Please check network/API keys.")
         return None
 
+    market_context_df = fetch_market_context_data(symbol, limit=fetch_limit)
+
     (
         X_train,
         y_train,
@@ -142,8 +160,9 @@ def train_single_coin(coin_or_symbol: str, sentiment_df=None):
         df,
         coin=coin,
         lookback=lookback,
-        forecast_horizon=7,
+        forecast_horizon=FORECAST_HORIZON,
         sentiment_df=sentiment_df,
+        market_context_df=market_context_df,
     )
 
     if len(X_train) < 50 or len(X_val) == 0 or len(X_test) == 0:
@@ -154,9 +173,9 @@ def train_single_coin(coin_or_symbol: str, sentiment_df=None):
     print(f"  Train samples: {len(X_train)}, Val samples: {len(X_val)}, Test samples: {len(X_test)}")
 
     input_shape = (X_train.shape[1], X_train.shape[2])
-    model = build_hybrid_model(
+    neural_model = build_hybrid_model(
         input_shape,
-        output_steps=7,
+        output_steps=FORECAST_HORIZON,
         dropout_rate=coin_cfg.get("dropout_rate", 0.3),
         lstm_units=coin_cfg.get("units", 128),
         dense_units=coin_cfg.get("dense_units", 64),
@@ -182,40 +201,53 @@ def train_single_coin(coin_or_symbol: str, sentiment_df=None):
 
     weights = np.exp(np.linspace(-1, 0, len(X_train)))
 
-    print(f"  Fitting on {len(X_train)} samples, validating on {len(X_val)} ...")
-    model.fit(
+    print(f"  Fitting neural model on {len(X_train)} samples, validating on {len(X_val)} ...")
+    batch_size = 32 if len(X_train) >= 320 else 16
+    neural_model.fit(
         X_train,
         y_train,
         epochs=100,
-        batch_size=16,
+        batch_size=batch_size,
         validation_data=(X_val, y_val),
         sample_weight=weights,
         callbacks=callbacks,
         verbose=1,
     )
 
-    raw_metrics = evaluate_model(model, X_test, y_test, target_scaler)
+    print("  Fitting tabular baseline ...")
+    tree_model = train_tabular_model(X_train, y_train)
+
+    raw_metrics = evaluate_model(neural_model, X_test, y_test, target_scaler, tabular_model=tree_model)
     metrics = {
         **raw_metrics,
         "trained_at": datetime.utcnow().isoformat(),
         "train_samples": int(len(X_train)),
         "val_samples": int(len(X_val)),
         "test_samples": int(len(X_test)),
+        "eligible_for_cached_serving": _is_eligible_for_cached_serving(raw_metrics),
     }
     print(f"  Metrics for {coin}: {raw_metrics}")
 
     registry = get_model_registry()
-    version = registry.save_model(coin, model, scaler, target_scaler, metrics=metrics)
+    version = registry.save_model(
+        coin,
+        neural_model,
+        scaler,
+        target_scaler,
+        metrics=metrics,
+        tree_model=tree_model,
+        config_overrides={
+            "forecast_horizon": FORECAST_HORIZON,
+            "ensemble_weights": ENSEMBLE_WEIGHTS,
+            "feature_count": len(get_feature_columns()),
+        },
+    )
     print(f"  Registered {coin} as {version}")
 
     return version
 
 
 def train_job_all_coins():
-    """
-    Train models for all supported coins sequentially.
-    Fetches sentiment data once and reuses it across coins.
-    """
     from shared.utils.data_fetcher import fetch_sentiment_data
 
     print("Fetching sentiment data ...")

@@ -1,160 +1,181 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from shared.utils.data_fetcher import fetch_sentiment_data
-from shared.utils.features import add_sentiment_indicators, get_feature_columns, add_technical_indicators
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+from shared.ml.predict import (
+    blend_predictions,
+    persistence_forecast,
+    predict_with_uncertainty,
+    _persistence_envelope,
+    _should_fallback_to_persistence,
+)
+from shared.ml.tabular import predict_tabular_model
+from shared.utils.data_fetcher import fetch_market_context_data, fetch_sentiment_data
+from shared.utils.features import (
+    add_market_context_indicators,
+    add_sentiment_indicators,
+    add_technical_indicators,
+    get_feature_columns,
+)
 
 
 def naive_baseline(data: np.ndarray, forecast_horizon: int) -> np.ndarray:
-    """Predicts the last observed value for all future steps (persistence baseline)."""
     return np.full(forecast_horizon, data[-1])
 
 
-def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, forecast_horizon: int = 7):
-    """
-    Performs a rolling backtest over the last *days* candles.
-    Returns list of {date, actual, predicted} dicts, or None / error dict on failure.
+def _predict_batch_with_uncertainty(model, X: np.ndarray, n_iter: int = 50):
+    mc_preds = []
+    for _ in range(n_iter):
+        mc_preds.append(model(X, training=True).numpy())
+    preds = np.stack(mc_preds, axis=0)
+    return np.mean(preds, axis=0), np.percentile(preds, 5, axis=0), np.percentile(preds, 95, axis=0)
 
-    FIX: Previously scaler.transform() was called on the FULL dataframe before
-         slicing the backtest window. The scaler was fitted during training on
-         historical data — applying it to the full df (which includes rows the
-         training scaler never saw) introduces subtle distribution leakage into
-         the normalised values, making backtest metrics look better than reality.
 
-         Fix: use the saved training scaler as-is (don't re-fit, don't
-         transform future rows eagerly). Slice first, then transform only the
-         window needed for each prediction. This matches real inference behaviour.
-    """
+def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, forecast_horizon: int = 3):
     from shared.ml.registry import get_model_registry
 
     registry = get_model_registry()
     model, scaler, target_scaler, metadata = registry.load_latest_model(coin)
+    tree_model = registry.load_latest_aux_artifact(coin, "tree_model.pkl")
 
     if model is None:
         return None
 
     lookback = metadata["config"]["lookback"]
+    horizon = metadata["config"].get("forecast_horizon", model.output_shape[1])
 
-    required_len = lookback + days + forecast_horizon
+    required_len = lookback + days + horizon
     if len(df) < required_len:
         return {"error": f"Not enough data. Need {required_len}, have {len(df)}"}
 
-    # ── Process ──────────────────────────────────────────────────────────
     df_proc = df.copy()
     df_proc.index.name = "open_time"
 
-    source = df_proc["source"].iloc[0] if "source" in df_proc.columns else "unknown"
-    print(f"[Backtest] {coin} source={source} rows={len(df_proc)}")
-
     df_full = add_technical_indicators(df_proc)
-
-    sentiment_df = fetch_sentiment_data(limit=200)
-    df_full = add_sentiment_indicators(df_full, sentiment_df, coin=coin)
+    df_full = add_sentiment_indicators(df_full, fetch_sentiment_data(limit=200), coin=coin)
+    df_full = add_market_context_indicators(
+        df_full,
+        fetch_market_context_data(f"{coin}USDT", limit=max(len(df_full), 120)),
+    )
 
     feature_cols = get_feature_columns()
-
-    # FIX: Drop NaN after ALL indicators and sentiment are added (not before),
-    # so the dropna sees the complete feature set and doesn't misalign columns.
     df_full = df_full.dropna(subset=feature_cols)
 
     if len(df_full) < (lookback + 1):
         return {"error": f"Not enough data after indicators. Need {lookback + 1}, have {len(df_full)}"}
 
-    # ── Build batch ───────────────────────────────────────────────────────
-    # FIX: Scale only the rows each prediction window actually uses.
-    # Do NOT transform the full df upfront — the training scaler was fitted
-    # on historical data only; applying it wholesale to a df that includes
-    # the target rows leaks future distribution into normalised inputs.
-    end_idx   = len(df_full)
+    end_idx = len(df_full)
     start_idx = max(lookback, end_idx - days)
-
-    batch_X       = []
-    valid_indices = []
-
     raw_values = df_full[feature_cols].values
-
-    for i in range(start_idx, end_idx):
-        input_start = i - lookback
-        if input_start >= 0:
-            # Transform only this window — matches real inference behaviour
-            window = raw_values[input_start:i]
-            scaled_window = scaler.transform(window)
-            batch_X.append(scaled_window)
-            valid_indices.append(i)
-
-    if not batch_X:
-        return []
-
-    batch_X = np.array(batch_X)   # (N, lookback, features)
-
-    print(f"[Backtest] {coin}: running {len(batch_X)}-day MC Dropout inference (n_iter=5) …")
-
-    # MC Dropout inference: run 5 stochastic forward passes and average.
-    # This matches production inference behaviour and produces smoother,
-    # more accurate predictions than a single deterministic pass.
-    n_iter = 5
-    mc_preds = []
-    for _ in range(n_iter):
-        preds = model(batch_X, training=True).numpy()
-        mc_preds.append(preds)
-    all_preds_scaled = np.mean(mc_preds, axis=0)
-
-    # Take t+1 step of each prediction, inverse-transform
-    first_step = all_preds_scaled[:, 0].reshape(-1, 1)
-    all_preds  = target_scaler.inverse_transform(first_step).flatten()
+    expected_features = getattr(scaler, "n_features_in_", raw_values.shape[1])
 
     history = []
-    for idx, i in enumerate(valid_indices):
-        # We predict i+1, so the actual needs to be at i+1
-        # Check if i+1 exists
-        if i + 1 < len(df_full):
-            history.append({
-                "date":      str(df_full.index[i + 1]),
-                "actual":    float(df_full.iloc[i + 1]["close"]),
-                "predicted": float(all_preds[idx]),
-            })
+    for i in range(start_idx, end_idx - 1):
+        input_start = i - lookback
+        if input_start < 0:
+            continue
+
+        window = raw_values[input_start:i]
+        if window.shape[1] < expected_features:
+            return {
+                "error": (
+                    f"Feature count mismatch. Model expects {expected_features} features, "
+                    f"but backtest generated {window.shape[1]}."
+                )
+            }
+        if window.shape[1] > expected_features:
+            window = window[:, :expected_features]
+        scaled_window = scaler.transform(window)
+        X_input = scaled_window.reshape(1, lookback, scaled_window.shape[1])
+
+        neural_scaled, neural_lower_scaled, neural_upper_scaled = predict_with_uncertainty(model, X_input, n_iter=50)
+        tree_scaled = predict_tabular_model(tree_model, X_input)[0] if tree_model is not None else neural_scaled
+
+        neural_price = target_scaler.inverse_transform(neural_scaled.reshape(-1, 1)).flatten()
+        neural_lower = target_scaler.inverse_transform(neural_lower_scaled.reshape(-1, 1)).flatten()
+        neural_upper = target_scaler.inverse_transform(neural_upper_scaled.reshape(-1, 1)).flatten()
+        tree_price = target_scaler.inverse_transform(tree_scaled.reshape(-1, 1)).flatten()
+
+        persistence_price = persistence_forecast(float(df_full.iloc[i - 1]["close"]), horizon)
+        blended_mean, _, _ = blend_predictions(
+            neural_mean=neural_price,
+            neural_lower=neural_lower,
+            neural_upper=neural_upper,
+            tree_pred=tree_price,
+            persistence_pred=persistence_price,
+            weights=metadata.get("config", {}).get("ensemble_weights"),
+        )
+
+        last_close = float(df_full.iloc[i - 1]["close"])
+        if _should_fallback_to_persistence(metadata, blended_mean, last_close):
+            fallback_mean, _, _ = _persistence_envelope(df_full.iloc[:i], horizon)
+            blended_mean = fallback_mean
+
+        if i < len(df_full):
+            history.append(
+                {
+                    "date": str(df_full.index[i]),
+                    "actual": float(df_full.iloc[i]["close"]),
+                    "predicted": float(blended_mean[0]),
+                }
+            )
 
     return history
 
 
-def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray, target_scaler) -> dict:
-    """
-    Evaluate model on held-out test set. Returns MAE, RMSE, and horizon.
+def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray, target_scaler, tabular_model=None) -> dict:
+    from shared.ml.training import ENSEMBLE_WEIGHTS
 
-    Note: y_test shape is (samples, forecast_horizon). inverse_transform
-    expects (samples, 1) or (samples, n_features). We flatten across the
-    horizon dimension so each step is evaluated independently then averaged.
-    """
-    # Evaluate with MC Dropout passes to match inference behaviour (5 passes)
-    n_iter = 5
-    mc_preds = []
-    for _ in range(n_iter):
-        preds = model(X_test, training=True).numpy()
-        mc_preds.append(preds)
-    
-    y_pred_scaled = np.mean(mc_preds, axis=0)
+    neural_scaled, neural_lower_scaled, neural_upper_scaled = _predict_batch_with_uncertainty(
+        model,
+        X_test,
+        n_iter=50,
+    )
 
-    # Inverse transform step by step across horizon to avoid shape issues
-    n_samples, horizon = y_pred_scaled.shape
+    n_samples, horizon = neural_scaled.shape
+    y_test_inv = target_scaler.inverse_transform(y_test.reshape(-1, 1)).reshape(n_samples, horizon)
+    neural_inv = target_scaler.inverse_transform(neural_scaled.reshape(-1, 1)).reshape(n_samples, horizon)
 
-    y_pred_inv = target_scaler.inverse_transform(
-        y_pred_scaled.reshape(-1, 1)
-    ).reshape(n_samples, horizon)
+    if tabular_model is not None:
+        tree_scaled = predict_tabular_model(tabular_model, X_test)
+        tree_inv = target_scaler.inverse_transform(tree_scaled.reshape(-1, 1)).reshape(n_samples, horizon)
+    else:
+        tree_inv = neural_inv
 
-    y_test_inv = target_scaler.inverse_transform(
-        y_test.reshape(-1, 1)
-    ).reshape(n_samples, horizon)
+    neural_lower = target_scaler.inverse_transform(neural_lower_scaled.reshape(-1, 1)).reshape(n_samples, horizon)
+    neural_upper = target_scaler.inverse_transform(neural_upper_scaled.reshape(-1, 1)).reshape(n_samples, horizon)
+    last_close = target_scaler.inverse_transform(X_test[:, -1, 0].reshape(-1, 1)).flatten()
+    persistence = np.vstack([persistence_forecast(close, horizon) for close in last_close])
+
+    ensemble_mean = np.zeros_like(neural_inv)
+    ensemble_lower = np.zeros_like(neural_inv)
+    ensemble_upper = np.zeros_like(neural_inv)
+    for idx in range(n_samples):
+        blend_mean, blend_lower, blend_upper = blend_predictions(
+            neural_mean=neural_inv[idx],
+            neural_lower=neural_lower[idx],
+            neural_upper=neural_upper[idx],
+            tree_pred=tree_inv[idx],
+            persistence_pred=persistence[idx],
+            weights=ENSEMBLE_WEIGHTS,
+        )
+        ensemble_mean[idx] = blend_mean
+        ensemble_lower[idx] = blend_lower
+        ensemble_upper[idx] = blend_upper
 
     if n_samples > 1:
-        actual_dir = np.sign(y_test_inv[1:, 0] - y_test_inv[:-1, 0])
-        pred_dir = np.sign(y_pred_inv[1:, 0] - y_test_inv[:-1, 0])
+        actual_dir = np.sign(y_test_inv[:, 0] - last_close)
+        pred_dir = np.sign(ensemble_mean[:, 0] - last_close)
         directional_accuracy = np.mean(pred_dir == actual_dir)
     else:
         directional_accuracy = 0.0
 
     return {
-        "mae":     float(mean_absolute_error(y_test_inv.flatten(), y_pred_inv.flatten())),
-        "rmse":    float(np.sqrt(mean_squared_error(y_test_inv.flatten(), y_pred_inv.flatten()))),
+        "mae": float(mean_absolute_error(y_test_inv.flatten(), ensemble_mean.flatten())),
+        "rmse": float(np.sqrt(mean_squared_error(y_test_inv.flatten(), ensemble_mean.flatten()))),
         "directional_accuracy": float(directional_accuracy),
+        "neural_mae": float(mean_absolute_error(y_test_inv.flatten(), neural_inv.flatten())),
+        "tree_mae": float(mean_absolute_error(y_test_inv.flatten(), tree_inv.flatten())),
+        "persistence_mae": float(mean_absolute_error(y_test_inv.flatten(), persistence.flatten())),
         "horizon": int(horizon),
     }

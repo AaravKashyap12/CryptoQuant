@@ -1,10 +1,36 @@
 import React, { useMemo, useState } from 'react';
 import {
   ComposedChart, Line, Area, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
+  CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 
 const TIME_RANGES = ['7D', '1M', '3M', '1Y', 'All'];
+
+const ForecastPointLabel = ({ cx, cy, payload }) => {
+  if (!payload || payload.type !== 'forecast' || cx == null || cy == null) return null;
+
+  const labelX = Math.max(cx - 156, 8);
+  const labelY = Math.max(cy - 44, 8);
+  const price = Number(payload.price).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  return (
+    <g>
+      <line x1={cx} y1={cy - 76} x2={cx} y2={cy + 76} stroke="rgba(255,214,0,0.35)" strokeDasharray="3 5" />
+      <circle cx={cx} cy={cy} r={7} fill="rgba(255,214,0,0.16)" stroke="rgba(255,214,0,0.42)" strokeWidth={1} />
+      <circle cx={cx} cy={cy} r={3.5} fill="var(--yellow)" />
+      <rect x={labelX} y={labelY} width={138} height={58} rx={3} fill="#060e18" stroke="rgba(255,214,0,0.38)" />
+      <text x={labelX + 10} y={labelY + 17} fill="var(--yellow)" fontSize={9} fontFamily="var(--font-mono)" letterSpacing="1.2">
+        NEXT CLOSE
+      </text>
+      <text x={labelX + 10} y={labelY + 42} fill="var(--yellow)" fontSize={18} fontWeight={700} fontFamily="var(--font-mono)">
+        ${price}
+      </text>
+    </g>
+  );
+};
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
@@ -35,7 +61,7 @@ const CustomTooltip = ({ active, payload }) => {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginTop: '2px' }}>
             <span style={{ color: 'var(--text-muted)' }}>Spread</span>
-            <span style={{ color: 'var(--accent)' }}>±{(((d.upper - d.lower) / d.price) * 50).toFixed(1)}%</span>
+            <span style={{ color: 'var(--accent)' }}>{'\u00b1'}{(((d.upper - d.lower) / d.price) * 50).toFixed(1)}%</span>
           </div>
         </div>
       )}
@@ -43,7 +69,7 @@ const CustomTooltip = ({ active, payload }) => {
   );
 };
 
-export function PriceChart({ data, forecast, coin }) {
+export function PriceChart({ data, forecast }) {
   const [timeRange, setTimeRange] = useState('3M'); // default to 3M for cleaner first load
 
   const { chartData, minPrice, maxPrice, priceChange } = useMemo(() => {
@@ -69,12 +95,21 @@ export function PriceChart({ data, forecast, coin }) {
     let combined = filtered;
     if (forecast?.mean?.length) {
       const lastDate = historical[historical.length - 1].fullDate;
+      const lastPrice = historical[historical.length - 1].price;
+      const anchor = {
+        date: lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        fullDate: lastDate,
+        price: lastPrice,
+        upper: lastPrice,
+        lower: lastPrice,
+        type: 'forecast-anchor',
+      };
       const fPoints = forecast.mean.map((val, i) => {
         const d = new Date(lastDate);
         d.setDate(d.getDate() + i + 1);
         return { date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), fullDate: d, price: val, upper: forecast.upper[i], lower: forecast.lower[i], type: 'forecast' };
       });
-      combined = [...filtered, ...fPoints];
+      combined = [...filtered, anchor, ...fPoints];
     }
 
     const prices = combined.map(d => d.price).filter(Boolean);
@@ -91,8 +126,6 @@ export function PriceChart({ data, forecast, coin }) {
   const isUp = priceChange >= 0;
   const lineColor = isUp ? 'var(--green)' : 'var(--red)';
   const gradId = isUp ? 'gradUp' : 'gradDown';
-  const gradColor = isUp ? '#00e676' : '#ff1744';
-
   if (!data?.length) {
     return (
       <div style={{ height: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '12px', letterSpacing: '0.1em' }}>
@@ -116,7 +149,9 @@ export function PriceChart({ data, forecast, coin }) {
           {forecast && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <div style={{ width: '16px', height: '1px', background: 'var(--yellow)', borderTop: '1px dashed var(--yellow)' }} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)', letterSpacing: '0.1em' }}>7D FORECAST</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--text-muted)', letterSpacing: '0.1em' }}>
+                {forecast?.mean?.length ?? 1}D FORECAST
+              </span>
             </div>
           )}
         </div>
@@ -175,9 +210,9 @@ export function PriceChart({ data, forecast, coin }) {
             />
 
             {/* Forecast line */}
-            <Line type="monotone" dataKey={d => d.type === 'forecast' ? d.price : null}
+            <Line type="monotone" dataKey={d => d.type === 'forecast' || d.type === 'forecast-anchor' ? d.price : null}
               stroke="var(--yellow)" strokeWidth={2} strokeDasharray="4 3"
-              dot={false} activeDot={{ r: 4, fill: 'var(--yellow)', strokeWidth: 0 }}
+              dot={<ForecastPointLabel />} activeDot={{ r: 5, fill: 'var(--yellow)', strokeWidth: 0 }}
               connectNulls name="Forecast" animationDuration={800} animationBegin={700}
             />
           </ComposedChart>

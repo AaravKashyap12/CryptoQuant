@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 import numpy as np
-from fastapi import APIRouter, HTTPException, Header, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Header, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 from typing import List, Optional
 
@@ -9,11 +9,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 COINS = ["BTC", "ETH", "BNB", "SOL", "ADA"]
+VALID_SERVING_MODES = {"weighted-neural-tree-persistence"}
 
 
 def _coin_fetch_limit(coin: str, default: int = 500) -> int:
     from shared.ml.training import COIN_CONFIG
     return COIN_CONFIG.get(coin, {}).get("limit", default)
+
+
+def _forecast_is_usable(forecast: dict) -> bool:
+    mean = np.array((forecast or {}).get("mean", []), dtype=float)
+    lower = np.array((forecast or {}).get("lower", []), dtype=float)
+    upper = np.array((forecast or {}).get("upper", []), dtype=float)
+
+    if mean.size == 0 or lower.size != mean.size or upper.size != mean.size:
+        return False
+    if not (np.all(np.isfinite(mean)) and np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))):
+        return False
+    if np.any(mean <= 0) or np.any(lower < 0) or np.any(upper <= 0):
+        return False
+    return True
+
+
+def _data_source_is_mock(df) -> bool:
+    return "source" in df.columns and str(df["source"].iloc[0]).lower() == "mock"
+
+
+def _metadata_allows_cached_serving(metadata: dict) -> bool:
+    from shared.ml.training import metrics_allow_cached_serving
+    return metrics_allow_cached_serving((metadata or {}).get("metrics"))
 
 
 # ---------------------------------------------------------------------------
@@ -45,18 +69,38 @@ def get_sentiment():
     return {"sentiment_score": float(df["sentiment_score"].iloc[-1])}
 
 
+@router.get("/on-chain/{coin}")
+def get_on_chain_signals(coin: str):
+    if coin not in COINS:
+        raise HTTPException(status_code=404, detail="Coin not supported")
+
+    from shared.core.config import settings
+    from shared.ml.cache import cache
+    from shared.utils.onchain_fetcher import fetch_onchain_signals
+
+    cache_key = f"onchain:{coin}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = fetch_onchain_signals(coin)
+    ttl = settings.ONCHAIN_CACHE_TTL if result.get("status") == "live" else min(settings.ONCHAIN_CACHE_TTL, 300)
+    cache.set(cache_key, result, ttl=ttl)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Market data — cached via Redis or in-process (5-min TTL)
 # ---------------------------------------------------------------------------
 @router.get("/market-data/{coin}")
-def get_market_data(coin: str, limit: int = 100):
+def get_market_data(coin: str, limit: int = Query(default=100, ge=1, le=1000)):
     if coin not in COINS:
         raise HTTPException(status_code=404, detail="Coin not supported")
     try:
         from shared.utils.data_fetcher import fetch_klines
         df = fetch_klines(f"{coin}USDT", limit=limit)
         if df is None:
-            raise HTTPException(status_code=500, detail="Failed to fetch market data")
+            raise HTTPException(status_code=503, detail="Live market data unavailable")
 
         if df.index.name != "open_time":
             df.index.name = "open_time"
@@ -92,7 +136,7 @@ def get_market_data(coin: str, limit: int = 100):
 @router.post("/predict/{coin}")
 def predict_coin(coin: str):
     """
-    Returns a 7-day forecast.
+    Returns a short-range forecast.
 
     Fast path (< 100ms): reads from the cached_predictions DB table, then
     checks Redis. The table is populated by the daily training pipeline or
@@ -106,13 +150,22 @@ def predict_coin(coin: str):
     # ── 1. Check Redis ──────────────────────────────────────────────────────
     from shared.core.config import settings
     from shared.ml.cache import cache
+    from shared.ml.training import FORECAST_HORIZON
 
     redis_key = f"pred:{coin}"
     cached    = cache.get(redis_key)
-    if cached:
+    if (
+        cached
+        and len(((cached.get("forecast") or {}).get("mean") or [])) == FORECAST_HORIZON
+        and _forecast_is_usable(cached.get("forecast"))
+        and ((cached.get("metadata") or {}).get("serving_mode") in VALID_SERVING_MODES)
+        and _metadata_allows_cached_serving(cached.get("metadata"))
+    ):
         logger.info(f"[/predict/{coin}] Redis HIT")
         cached["from_cache"] = True
         return cached
+    if cached:
+        cache.delete(redis_key)
 
     # ── 2. Check DB prediction store ───────────────────────────────────────
     from shared.ml.registry import get_model_registry
@@ -138,9 +191,11 @@ def predict_coin(coin: str):
 
         df = fetch_klines(f"{coin}USDT", limit=_coin_fetch_limit(coin))
         if df is None:
-            raise HTTPException(status_code=500, detail="Failed to fetch data for prediction")
+            raise HTTPException(status_code=503, detail="Live market data unavailable; refusing prediction")
+        if _data_source_is_mock(df):
+            raise HTTPException(status_code=503, detail="Live market data unavailable; refusing mock-data prediction")
 
-        result = get_latest_prediction(coin, df, n_iter=10)
+        result = get_latest_prediction(coin, df, n_iter=50)
         if result is None:
             raise HTTPException(status_code=404, detail=f"No model found for {coin}")
 
@@ -156,9 +211,9 @@ def predict_coin(coin: str):
             "from_cache": False,
         }
 
-        # Store in DB + Redis so subsequent requests are fast
-        registry.save_cached_prediction(coin, forecast, result["metadata"])
-        cache.set(redis_key, response, ttl=settings.REDIS_PREDICTION_TTL)
+        if _metadata_allows_cached_serving(result["metadata"]):
+            registry.save_cached_prediction(coin, forecast, result["metadata"])
+            cache.set(redis_key, response, ttl=settings.REDIS_PREDICTION_TTL)
 
         return response
 
@@ -188,7 +243,7 @@ def get_model_metrics(coin: str):
 # Validate — LAZY: only runs when explicitly requested, not on page load
 # ---------------------------------------------------------------------------
 @router.get("/validate/{coin}")
-def validate_model_endpoint(coin: str, days: int = 30):
+def validate_model_endpoint(coin: str, days: int = Query(default=30, ge=1, le=120)):
     """
     Rolling backtest for the last N days. This is an expensive operation —
     call it on-demand (e.g. user opens the Accuracy panel), not on page load.
@@ -200,7 +255,12 @@ def validate_model_endpoint(coin: str, days: int = 30):
     from shared.core.config import settings
     from shared.ml.cache import cache
 
-    cache_key = f"validate:{coin}:{days}"
+    from shared.ml.registry import get_model_registry
+    registry = get_model_registry()
+    meta = registry.get_latest_version_metadata(coin)
+    version = meta["version"] if meta else "no-model"
+
+    cache_key = f"validate:{coin}:{days}:{version}"
     cached = cache.get(cache_key)
     if cached is not None:
         logger.info(f"[/validate/{coin}] cache HIT")
@@ -211,7 +271,7 @@ def validate_model_endpoint(coin: str, days: int = 30):
 
     df = fetch_klines(f"{coin}USDT", limit=max(_coin_fetch_limit(coin), 200 + days))
     if df is None:
-        raise HTTPException(status_code=500, detail="Failed to fetch data")
+        raise HTTPException(status_code=503, detail="Live market data unavailable")
 
     history = execute_rolling_backtest(coin, df, days=days)
     if history is None:
@@ -236,7 +296,7 @@ def refresh_all_predictions(background_tasks: BackgroundTasks, x_api_key: Option
 
     def _run():
         from shared.ml.predict import run_prediction_batch
-        results = run_prediction_batch(n_iter=20)
+        results = run_prediction_batch(n_iter=50)
         logger.info(f"[Admin] Batch prediction results: {results}")
         # Invalidate Redis prediction cache so next user request gets fresh data
         from shared.ml.cache import cache
@@ -261,9 +321,11 @@ def refresh_prediction(coin: str, x_api_key: Optional[str] = Header(None)):
 
     df = fetch_klines(f"{coin}USDT", limit=_coin_fetch_limit(coin))
     if df is None:
-        raise HTTPException(status_code=500, detail="Data fetch failed")
+        raise HTTPException(status_code=503, detail="Live market data unavailable")
+    if _data_source_is_mock(df):
+        raise HTTPException(status_code=503, detail="Live market data unavailable; refusing mock-data prediction")
 
-    result = get_latest_prediction(coin, df, n_iter=20)
+    result = get_latest_prediction(coin, df, n_iter=50)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No model for {coin}")
 
@@ -273,6 +335,9 @@ def refresh_prediction(coin: str, x_api_key: Optional[str] = Header(None)):
         "upper": result["upper"].tolist(),
     }
     registry = get_model_registry()
+    if not _metadata_allows_cached_serving(result["metadata"]):
+        raise HTTPException(status_code=422, detail="Model metrics below cached-serving threshold")
+
     registry.save_cached_prediction(coin, forecast, result["metadata"])
     cache.delete(f"pred:{coin}")   # invalidate so next request re-reads from DB
 

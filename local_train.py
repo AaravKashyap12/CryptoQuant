@@ -12,6 +12,8 @@ Run this script after pulling the latest data to:
 import os
 import sys
 
+import pandas as pd
+
 sys.path.append(os.getcwd())
 
 from dotenv import load_dotenv
@@ -20,6 +22,21 @@ load_dotenv()
 import colorama
 from colorama import Fore, Style
 colorama.init()
+
+
+def _continuity_summary(df):
+    diffs = df.index.to_series().diff().dropna()
+    if diffs.empty:
+        return "no continuity data", False
+
+    median_days = diffs.median() / pd.Timedelta(days=1)
+    max_days = diffs.max() / pd.Timedelta(days=1)
+    tail_max_days = diffs.tail(120).max() / pd.Timedelta(days=1)
+    has_tail_gap = tail_max_days > 1.5
+    return (
+        f"median_gap={median_days:.1f}d, max_gap={max_days:.1f}d, tail_max_gap={tail_max_days:.1f}d",
+        has_tail_gap,
+    )
 
 
 def clear_stale_cache(registry):
@@ -31,7 +48,10 @@ def clear_stale_cache(registry):
     """
     session = registry.Session()
     try:
-        deleted = session.execute("DELETE FROM cached_predictions")
+        from sqlalchemy import delete
+        from shared.ml.registry import CachedPrediction
+
+        deleted = session.execute(delete(CachedPrediction))
         session.commit()
         count = deleted.rowcount if hasattr(deleted, "rowcount") else "all"
         print(f"{Fore.YELLOW}  Cleared {count} stale cached prediction(s) from DB{Style.RESET_ALL}")
@@ -49,12 +69,12 @@ def check_data_availability():
     BNB in particular often returns <300 rows from fallback exchanges.
     """
     from shared.utils.data_fetcher import fetch_klines
-    from shared.ml.training import COINS
+    from shared.ml.training import COIN_CONFIG, COINS
 
     print(f"\n{Fore.CYAN}Pre-flight — checking data availability …{Style.RESET_ALL}")
     all_ok = True
     for coin in COINS:
-        df = fetch_klines(f"{coin}USDT", limit=1500)
+        df = fetch_klines(f"{coin}USDT", limit=COIN_CONFIG.get(coin, {}).get("limit", 5000))
         if df is None:
             print(f"  {Fore.RED}[FAIL] {coin}: no data returned{Style.RESET_ALL}")
             all_ok = False
@@ -63,7 +83,11 @@ def check_data_availability():
         source = df["source"].iloc[0] if "source" in df.columns else "unknown"
         colour = Fore.GREEN if rows >= 500 else Fore.RED
         warn = "" if rows >= 500 else f"  <-- WARNING: only {rows} rows, model will be undertrained"
-        print(f"  {colour}{coin}: {rows} rows from {source}{warn}{Style.RESET_ALL}")
+        continuity, has_tail_gap = _continuity_summary(df)
+        if has_tail_gap:
+            warn += "  <-- WARNING: recent date gaps detected"
+            all_ok = False
+        print(f"  {colour}{coin}: {rows} rows from {source}; {continuity}{warn}{Style.RESET_ALL}")
         if rows < 300:
             all_ok = False
     return all_ok
@@ -112,9 +136,9 @@ def run_local_training():
     # FIX: Previously this block swallowed ALL exceptions and printed SUCCESS
     # even when prediction batch failed — leaving stale predictions in DB.
     # Now we re-raise on failure and exit with code 1 so CI/CD catches it.
-    print(f"\n{Fore.CYAN}Step 3/3 — Pre-computing predictions (n_iter=20) …{Style.RESET_ALL}")
+    print(f"\n{Fore.CYAN}Step 3/3 — Pre-computing predictions (n_iter=50) …{Style.RESET_ALL}")
     try:
-        pred_results = run_prediction_batch(n_iter=20)
+        pred_results = run_prediction_batch(n_iter=50)
         all_pred_ok = True
         for coin, status in pred_results.items():
             ok = status == "ok"

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _LOCAL_OHLCV_CACHE: dict = {}       # key → (expires_at, df)
 _SENTIMENT_CACHE   = None
 _SENTIMENT_EXPIRES = 0.0
+_MARKET_CONTEXT_CACHE: dict = {}
 
 
 def get_exchange_client(exchange_id: str):
@@ -67,14 +68,16 @@ def generate_mock_data(symbol: str, interval: str = "1d", limit: int = 500) -> p
 # ---------------------------------------------------------------------------
 # OHLCV fetch — with Redis-aware caching
 # ---------------------------------------------------------------------------
-def fetch_klines(symbol: str, interval: str = None, limit: int = 500) -> pd.DataFrame:
+def fetch_klines(symbol: str, interval: str = None, limit: int = 500, allow_mock: bool = None) -> pd.DataFrame:
     """
     Fetch historical klines with a two-tier cache:
       1. Redis (if USE_REDIS=true)  — survives restarts, shared across workers
       2. In-process dict             — fast local fallback / dev mode
 
     CCXT exchange priority: kraken → coinbase → binance → kucoin → okx
-    Falls back to mock data if all fail.
+    Returns None when live exchanges fail. Mock data is only returned when
+    allow_mock=True or ALLOW_MOCK_DATA=true, so production paths never silently
+    serve synthetic prices.
     """
     from shared.core.config import settings
 
@@ -144,6 +147,10 @@ def fetch_klines(symbol: str, interval: str = None, limit: int = 500) -> pd.Data
             break
 
     if df is None:
+        use_mock = settings.ALLOW_MOCK_DATA if allow_mock is None else allow_mock
+        if not use_mock:
+            print(f" [WARN] {symbol} fetch failed on all exchanges. Mock fallback disabled.")
+            return None
         print(f" [WARN] {symbol} fetch failed on all exchanges. Falling back to MOCK data.")
         df = generate_mock_data(symbol, interval="1d", limit=limit)
         df["source"] = "Mock"
@@ -219,6 +226,75 @@ def fetch_sentiment_data(limit: int = 100) -> pd.DataFrame | None:
             "value": [50.0] * limit
         }).set_index("open_time")
         return df
+
+
+def fetch_market_context_data(symbol: str, limit: int = 500) -> pd.DataFrame:
+    """
+    Fetch public derivatives context for a symbol and return daily features.
+
+    Uses Binance futures public endpoints for funding-rate history and open
+    interest history. If either request fails, returns a neutral zero-filled
+    dataframe so training and inference stay operational.
+    """
+    cache_key = f"context:{symbol}:{limit}"
+    cached = _MARKET_CONTEXT_CACHE.get(cache_key)
+    if cached is not None and time.time() < cached[0]:
+        return cached[1]
+
+    fallback_index = pd.date_range(end=pd.Timestamp.now(), periods=limit, freq="D")
+    fallback = pd.DataFrame(
+        {
+            "funding_rate": np.zeros(limit),
+            "open_interest": np.zeros(limit),
+            "open_interest_change": np.zeros(limit),
+        },
+        index=fallback_index,
+    )
+    fallback.index.name = "open_time"
+
+    try:
+        funding_resp = requests.get(
+            "https://fapi.binance.com/fapi/v1/fundingRate",
+            params={"symbol": symbol, "limit": min(max(limit * 3, 30), 1000)},
+            timeout=10,
+        )
+        oi_resp = requests.get(
+            "https://fapi.binance.com/futures/data/openInterestHist",
+            params={"symbol": symbol, "period": "1d", "limit": min(max(limit, 30), 500)},
+            timeout=10,
+        )
+        funding_resp.raise_for_status()
+        oi_resp.raise_for_status()
+
+        funding_rows = funding_resp.json() or []
+        oi_rows = oi_resp.json() or []
+        if not funding_rows or not oi_rows:
+            raise ValueError("empty market context payload")
+
+        funding_df = pd.DataFrame(funding_rows)
+        funding_df["open_time"] = pd.to_datetime(funding_df["fundingTime"], unit="ms").dt.floor("D")
+        funding_df["funding_rate"] = pd.to_numeric(funding_df["fundingRate"], errors="coerce")
+        funding_daily = funding_df.groupby("open_time", as_index=True)["funding_rate"].mean().to_frame()
+
+        oi_df = pd.DataFrame(oi_rows)
+        oi_df["open_time"] = pd.to_datetime(oi_df["timestamp"], unit="ms").dt.floor("D")
+        oi_df["open_interest"] = pd.to_numeric(oi_df["sumOpenInterest"], errors="coerce")
+        oi_daily = oi_df.groupby("open_time", as_index=True)["open_interest"].last().to_frame()
+        oi_daily["open_interest_change"] = oi_daily["open_interest"].pct_change().replace([np.inf, -np.inf], np.nan)
+
+        merged = funding_daily.join(oi_daily, how="outer").sort_index()
+        merged = merged.reindex(fallback.index.union(merged.index)).sort_index()
+        merged["funding_rate"] = merged["funding_rate"].fillna(0.0)
+        merged["open_interest"] = merged["open_interest"].ffill().fillna(0.0)
+        merged["open_interest_change"] = merged["open_interest_change"].fillna(0.0)
+        merged = merged.tail(limit)
+        merged.index.name = "open_time"
+    except Exception as e:
+        logger.warning(f"Market context fetch failed for {symbol}: {e}")
+        merged = fallback
+
+    _MARKET_CONTEXT_CACHE[cache_key] = (time.time() + 28_800, merged)
+    return merged
 
 
 # ---------------------------------------------------------------------------

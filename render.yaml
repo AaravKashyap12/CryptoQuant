@@ -3,7 +3,7 @@ services:
     name: cryptoquant-api
     runtime: python
     region: ohio
-    plan: starter
+    plan: free
     pythonVersion: "3.11.11"
     buildCommand: "pip install --upgrade pip && pip install -r services/api/requirements.txt"
     startCommand: "uvicorn services.api.main:app --host 0.0.0.0 --port $PORT --workers 1"
@@ -15,9 +15,15 @@ services:
       - key: USE_POSTGRES
         value: "true"
       - key: USE_REDIS
-        value: "true"      # set to "false" to disable Redis
+        value: "false"
       - key: DEBUG
         value: "false"
+      - key: ALLOW_MOCK_DATA
+        value: "false"
+      - key: ONCHAIN_PROVIDER
+        value: "free"
+      - key: ONCHAIN_CACHE_TTL
+        value: "3600"
       - key: DB_URL
         sync: false        # set via Render dashboard
       - key: S3_ENDPOINT_URL
@@ -26,20 +32,5 @@ services:
         sync: false
       - key: S3_SECRET_KEY
         sync: false
-      - key: REDIS_URL
-        sync: false
       - key: ADMIN_API_KEY
         sync: false
-
-  - type: static
-    name: cryptoquant-ui
-    env: static
-    buildCommand: "cd frontend && npm install && npm run build"
-    staticPublishPath: frontend/dist
-    envVars:
-      - key: VITE_API_URL
-        value: https://cryptoquant-api-plez.onrender.com # Update this to your actual API URL if different
-    routes:
-      - type: rewrite
-        source: "/*"
-        destination: "/index.html"

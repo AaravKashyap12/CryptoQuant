@@ -16,6 +16,7 @@ def add_technical_indicators(df):
     """
     df = df.copy()
     df.columns = [c.lower() for c in df.columns]
+    df['volume'] = np.log1p(df['volume'].clip(lower=0))
 
     # --- 1. RSI (Relative Strength Index) ---
     # FIXED: Use Wilder's smoothing (ewm with alpha=1/14, adjust=False).
@@ -50,7 +51,7 @@ def add_technical_indicators(df):
     low_close  = (df['low']  - df['close'].shift()).abs()
 
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df['atr'] = tr.rolling(window=14).mean()
+    df['atr'] = tr.ewm(alpha=1/14, adjust=False).mean()
 
     # --- 5. Volume Moving Average ---
     df['vol_ma_20'] = df['volume'].rolling(window=20).mean()
@@ -74,10 +75,6 @@ def add_sentiment_indicators(df, sentiment_df=None, coin=None):
 
     if 'sentiment_score' not in df.columns:
         df['sentiment_score'] = 50.0
-
-    if coin in {"BNB", "ADA"}:
-        df['sentiment_score'] = 50.0
-        return df
 
     if sentiment_df is not None and not sentiment_df.empty:
         try:
@@ -110,6 +107,42 @@ def add_sentiment_indicators(df, sentiment_df=None, coin=None):
     return df
 
 
+def add_market_context_indicators(df, market_context_df=None):
+    """
+    Merge funding/open-interest context onto the daily price dataframe.
+
+    The fallback is intentionally neutral so missing external data does not
+    prevent training or inference from running.
+    """
+    df = df.copy()
+
+    for column in ("funding_rate", "open_interest", "open_interest_change"):
+        if column not in df.columns:
+            df[column] = 0.0
+
+    if market_context_df is None or market_context_df.empty:
+        return df
+
+    try:
+        context = market_context_df.copy()
+        context["date_key"] = context.index.strftime("%Y-%m-%d")
+        context = context.drop_duplicates(subset=["date_key"])
+        context_lookup = context.set_index("date_key")[
+            ["funding_rate", "open_interest", "open_interest_change"]
+        ]
+
+        mapped = pd.DataFrame(index=df.index)
+        mapped["date_key"] = df.index.strftime("%Y-%m-%d")
+        mapped = mapped.join(context_lookup, on="date_key")
+
+        for column in ("funding_rate", "open_interest", "open_interest_change"):
+            df[column] = mapped[column].ffill().fillna(0.0)
+    except Exception as e:
+        print(f" [WARN] Market context join failed: {e}")
+
+    return df
+
+
 def get_feature_columns():
     """
     Returns the ordered list of feature columns used for training and inference.
@@ -118,7 +151,7 @@ def get_feature_columns():
     Any change here requires retraining all models.
 
     FIX: Replaced ema_99 with ema_50 to match the updated indicator set.
-    Total features: 15.
+    Total features: 18.
     """
     return [
         'close', 'high', 'low', 'open', 'volume',
@@ -127,4 +160,5 @@ def get_feature_columns():
         'ema_7', 'ema_25', 'ema_50',
         'atr', 'vol_ma_20',
         'sentiment_score',
+        'funding_rate', 'open_interest', 'open_interest_change',
     ]

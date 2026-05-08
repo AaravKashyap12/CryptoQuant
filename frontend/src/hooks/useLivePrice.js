@@ -6,16 +6,11 @@ import { useState, useEffect } from 'react';
  * Binance WS is the most reliable for free real-time data in frontend.
  */
 export function useLivePrice(symbol) {
-    const [price, setPrice] = useState(null);
-    const [change24h, setChange24h] = useState(null);
+    const [ticker, setTicker] = useState({ symbol: null, price: null, change24h: null });
 
     useEffect(() => {
         if (!symbol) return;
         let active = true;
-
-        // Reset state so old price doesn't show for a split second
-        setPrice(null);
-        setChange24h(null);
 
         // Binance WS symbol: btcusdt (lowercase)
         const wsSymbol = symbol.toLowerCase().replace('/', '');
@@ -26,8 +21,11 @@ export function useLivePrice(symbol) {
             try {
                 const data = JSON.parse(event.data);
                 // c is current price, p is price change
-                setPrice(parseFloat(data.c));
-                setChange24h(parseFloat(data.P));
+                setTicker({
+                    symbol,
+                    price: parseFloat(data.c),
+                    change24h: parseFloat(data.P),
+                });
             } catch (e) {
                 console.error("WS Parse Error", e);
             }
@@ -45,5 +43,9 @@ export function useLivePrice(symbol) {
         };
     }, [symbol]);
 
-    return { price, change24h };
+    const isCurrentSymbol = ticker.symbol === symbol;
+    return {
+        price: isCurrentSymbol ? ticker.price : null,
+        change24h: isCurrentSymbol ? ticker.change24h : null,
+    };
 }

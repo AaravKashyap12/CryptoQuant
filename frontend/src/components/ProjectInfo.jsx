@@ -53,7 +53,7 @@ export function ProjectInfo({ isOpen, onClose }) {
                                         <strong>Feature Engineering:</strong> The raw data is processed to calculate technical indicators such as RSI, MACD, and Bollinger Bands, which serve as inputs for the model.
                                     </li>
                                     <li>
-                                        <strong>Predictive Modeling:</strong> The LSTM network, trained on years of historical data, identifies temporal patterns and sequential dependencies to forecast future price movements.
+                                        <strong>Predictive Modeling:</strong> A short-horizon ensemble blends a hybrid sequence model, a tabular boosting baseline, and a persistence anchor to forecast the next trading day.
                                     </li>
                                     <li>
                                         <strong>Uncertainty Estimation:</strong> We calculate a dynamic confidence interval based on current market volatility to provide a realistic "Spread" of potential outcomes (High/Low estimates).

@@ -1,47 +1,78 @@
-import pytest
-import pandas as pd
+import unittest
+
 import numpy as np
-from shared.utils.features import add_technical_indicators
-from shared.utils.preprocess import prepare_training_data
+import pandas as pd
+
+from shared.utils.features import (
+    add_market_context_indicators,
+    add_sentiment_indicators,
+    add_technical_indicators,
+    get_feature_columns,
+)
+from shared.utils.preprocess import prepare_inference_data, prepare_training_data
 
 
 def make_df(periods=150):
     dates = pd.date_range(start="2023-01-01", periods=periods, freq="D")
-    return pd.DataFrame({
-        "open":   np.random.rand(periods) * 100,
-        "high":   np.random.rand(periods) * 100,
-        "low":    np.random.rand(periods) * 100,
-        "close":  np.random.rand(periods) * 100,
-        "volume": np.random.rand(periods) * 1000,
-    }, index=dates)
+    return pd.DataFrame(
+        {
+            "open": np.random.rand(periods) * 100,
+            "high": np.random.rand(periods) * 100,
+            "low": np.random.rand(periods) * 100,
+            "close": np.random.rand(periods) * 100,
+            "volume": np.random.rand(periods) * 1000,
+        },
+        index=dates,
+    )
 
 
-def test_technical_indicators():
-    df = make_df(100)
-    df_out = add_technical_indicators(df)
+class PreprocessTests(unittest.TestCase):
+    def test_technical_indicators(self):
+        df = make_df(100)
+        df_out = add_technical_indicators(df)
+        df_out = add_market_context_indicators(df_out, None)
 
-    # All expected columns are present
-    assert "rsi"           in df_out.columns
-    assert "MACD_12_26_9"  in df_out.columns
-    assert "MACDh_12_26_9" in df_out.columns
-    assert "MACDs_12_26_9" in df_out.columns
-    assert "ema_7"         in df_out.columns
-    assert "ema_25"        in df_out.columns
-    assert "ema_50"        in df_out.columns
-    assert "atr"           in df_out.columns
-    assert "vol_ma_20"     in df_out.columns
+        self.assertIn("rsi", df_out.columns)
+        self.assertIn("MACD_12_26_9", df_out.columns)
+        self.assertIn("MACDh_12_26_9", df_out.columns)
+        self.assertIn("MACDs_12_26_9", df_out.columns)
+        self.assertIn("ema_7", df_out.columns)
+        self.assertIn("ema_25", df_out.columns)
+        self.assertIn("ema_50", df_out.columns)
+        self.assertIn("atr", df_out.columns)
+        self.assertIn("vol_ma_20", df_out.columns)
+        self.assertIn("funding_rate", df_out.columns)
+        self.assertIn("open_interest", df_out.columns)
+        self.assertIn("open_interest_change", df_out.columns)
 
-    # NaNs are EXPECTED for warmup rows — dropna is done in preprocess, not here
-    # Just check the tail rows (after warmup) are clean
-    assert not df_out.tail(50)[["rsi", "MACD_12_26_9", "ema_50", "atr", "vol_ma_20"]].isnull().any().any()
+        tail = df_out.tail(50)[["rsi", "MACD_12_26_9", "ema_50", "atr", "vol_ma_20"]]
+        self.assertFalse(tail.isnull().any().any())
+
+    def test_prepare_training_data(self):
+        df = make_df(150)
+        X, y, scaler, target_scaler = prepare_training_data(df, lookback=10, forecast_horizon=3)
+
+        self.assertEqual(X.ndim, 3)
+        self.assertEqual(X.shape[1], 10)
+        self.assertEqual(y.shape[1], 3)
+        self.assertEqual(len(X), len(y))
+        self.assertEqual(X.shape[2], 18)
+
+    def test_log_volume_scaling_is_consistent_between_train_and_inference(self):
+        df = make_df(150)
+        _, _, scaler, _ = prepare_training_data(df, lookback=10, forecast_horizon=3)
+        X_infer = prepare_inference_data(df, scaler, lookback=10)
+
+        engineered = add_market_context_indicators(
+            add_sentiment_indicators(add_technical_indicators(df), None),
+            None,
+        )
+        feature_cols = get_feature_columns()
+        engineered = engineered.dropna(subset=feature_cols)
+        expected_last_window = scaler.transform(engineered[feature_cols].values)[-10:]
+
+        np.testing.assert_allclose(expected_last_window, X_infer[0])
 
 
-def test_prepare_training_data():
-    df = make_df(150)
-    X, y, scaler, target_scaler = prepare_training_data(df, lookback=10, forecast_horizon=3)
-
-    assert X.ndim == 3          # (samples, lookback, features)
-    assert X.shape[1] == 10     # lookback window
-    assert y.shape[1] == 3      # forecast horizon
-    assert len(X) == len(y)     # aligned
-    assert X.shape[2] == 15     # 15 features
+if __name__ == "__main__":
+    unittest.main()

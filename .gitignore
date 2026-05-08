@@ -40,3 +40,9 @@ Thumbs.db
 .pytest_cache/
 htmlcov/
 .coverage
+local_storage_test/
+
+# Local reviewer/export artifacts
+_reviewer_*/
+CryptoQuant-*-review*.zip
+.codex-runlogs/
