@@ -79,6 +79,42 @@ def _cached_prediction_matches_market(coin: str, cached: dict) -> bool:
         return True
 
 
+def _market_persistence_response(coin: str, reason: str):
+    try:
+        from shared.utils.data_fetcher import fetch_klines
+
+        df = fetch_klines(f"{coin}USDT", limit=100)
+        if df is None or _data_source_is_mock(df):
+            return None
+
+        last_close = float(df["close"].iloc[-1])
+        returns = df["close"].pct_change().dropna().tail(30)
+        daily_vol = float(returns.std()) if len(returns) > 1 else 0.02
+        if not np.isfinite(daily_vol) or daily_vol <= 0:
+            daily_vol = 0.02
+
+        z_score = 1.645
+        lower = max(0.0, last_close * (1.0 - z_score * daily_vol))
+        upper = last_close * (1.0 + z_score * daily_vol)
+        forecast = {"mean": [last_close], "lower": [lower], "upper": [upper]}
+        return {
+            "coin": coin,
+            "forecast": forecast,
+            "metadata": {
+                "version": "market-persistence",
+                "serving_mode": "market-persistence-fallback",
+                "served_horizon": 1,
+                "mc_iterations": 0,
+                "degraded_to_persistence": True,
+                "fallback_reason": reason,
+            },
+            "from_cache": False,
+        }
+    except Exception as e:
+        logger.warning("[/predict/%s] market persistence fallback failed: %s", coin, e)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Helper: verify admin API key for protected endpoints
 # ---------------------------------------------------------------------------
@@ -193,6 +229,7 @@ def predict_coin(coin: str):
 
     redis_key = f"pred:{coin}"
     cached    = cache.get(redis_key)
+    had_invalid_cache = False
     if (
         cached
         and len(((cached.get("forecast") or {}).get("mean") or [])) == FORECAST_HORIZON
@@ -205,6 +242,7 @@ def predict_coin(coin: str):
         cached["from_cache"] = True
         return cached
     if cached:
+        had_invalid_cache = True
         cache.delete(redis_key)
 
     # ── 2. Check DB prediction store ───────────────────────────────────────
@@ -222,8 +260,11 @@ def predict_coin(coin: str):
             "computed_at": db_cached.get("computed_at"),
             "from_cache": True,
         }
-    if db_cached:
+    if db_cached or had_invalid_cache:
         cache.delete(redis_key)
+        safe_response = _market_persistence_response(coin, "cached forecast failed live-price sanity check")
+        if safe_response:
+            return safe_response
 
     # ── 3. Live inference fallback ─────────────────────────────────────────
     logger.info(f"[/predict/{coin}] Cache MISS — running live inference")

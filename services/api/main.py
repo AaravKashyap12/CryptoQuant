@@ -1,23 +1,21 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+
 from services.api.routes import endpoints
+from shared.core.config import settings
 
 COINS = ["BTC", "ETH", "BNB", "SOL", "ADA"]
 
 
-# ---------------------------------------------------------------------------
-# Lifespan: pre-warm all models BEFORE accepting requests
-# ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Runs once at startup. Paid instances can prewarm all models; Render free
-    tier stays lazy to avoid memory-limit restarts.
-    """
-    from shared.core.config import settings
+    """Load models on startup only when the deployment has enough memory."""
     from shared.ml.registry import get_model_registry
+
     registry = get_model_registry()
     if settings.PREWARM_MODELS:
         print("[Startup] Pre-warming models ...")
@@ -26,36 +24,40 @@ async def lifespan(app: FastAPI):
     else:
         print("[Startup] Model prewarm disabled; loading models lazily")
     yield
-    # Shutdown cleanup
     registry.dispose()
 
 
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
 app = FastAPI(
     title="CryptoQuant API",
     version="v2.0.0",
     lifespan=lifespan,
 )
 
-# Compress responses > 1 KB automatically
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "https://cryptoquant.vercel.app",
-        # Add your custom domain here — remove the wildcard in production
-    ],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def uncaught_exception_handler(request: Request, exc: Exception):
+    origin = request.headers.get("origin")
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": str(exc) if settings.DEBUG else "Internal server error"},
+    )
+    if origin and (origin in allowed_origins or origin.endswith(".vercel.app")):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 
 @app.get("/")
@@ -68,5 +70,4 @@ def health_check():
     return {"status": "ok", "message": "Backend is running"}
 
 
-# Mount all routes
 app.include_router(endpoints.router, prefix="/api/v1")

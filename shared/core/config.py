@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     PREWARM_MODELS: bool = os.getenv("PREWARM_MODELS", "false").lower() == "true"
     MODEL_CACHE_SIZE: int = int(os.getenv("MODEL_CACHE_SIZE", "5"))
     ALLOW_MOCK_DATA: bool = os.getenv("ALLOW_MOCK_DATA", "false").lower() == "true"
+    CORS_ORIGINS: str = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,https://cryptoquant.vercel.app",
+    )
 
     # Database (Postgres / Supabase)
     DB_URL: str = os.getenv("DB_URL", os.getenv("SUPABASE_DB_URL", "postgresql://postgres:password@db.supabase.co:5432/postgres"))
