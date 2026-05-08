@@ -40,6 +40,45 @@ def _metadata_allows_cached_serving(metadata: dict) -> bool:
     return metrics_allow_cached_serving((metadata or {}).get("metrics"))
 
 
+def _max_cached_move_for_coin(coin: str) -> float:
+    # One-day BTC/ETH predictions beyond these bands are almost always stale,
+    # mock-derived, or weak-model artifacts. Alts get wider limits.
+    return {"BTC": 0.08, "ETH": 0.10, "BNB": 0.15, "SOL": 0.18, "ADA": 0.18}.get(coin, 0.15)
+
+
+def _cached_prediction_matches_market(coin: str, cached: dict) -> bool:
+    forecast = (cached or {}).get("forecast") or {}
+    mean = forecast.get("mean") or []
+    if not mean:
+        return False
+
+    try:
+        from shared.utils.data_fetcher import get_current_price
+
+        live_price = get_current_price(f"{coin}USDT")
+        if not live_price:
+            # If the live quote provider is temporarily unavailable, do not
+            # reject an otherwise valid cache entry just because the sanity
+            # check cannot run.
+            return True
+
+        predicted = float(mean[0])
+        move = abs(predicted - float(live_price)) / max(float(live_price), 1.0)
+        if move > _max_cached_move_for_coin(coin):
+            logger.warning(
+                "[/predict/%s] rejecting cached forecast %.2f vs live %.2f (move %.2f%%)",
+                coin,
+                predicted,
+                float(live_price),
+                move * 100,
+            )
+            return False
+        return True
+    except Exception as e:
+        logger.warning("[/predict/%s] cache sanity check failed: %s", coin, e)
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Helper: verify admin API key for protected endpoints
 # ---------------------------------------------------------------------------
@@ -160,6 +199,7 @@ def predict_coin(coin: str):
         and _forecast_is_usable(cached.get("forecast"))
         and ((cached.get("metadata") or {}).get("serving_mode") in VALID_SERVING_MODES)
         and _metadata_allows_cached_serving(cached.get("metadata"))
+        and _cached_prediction_matches_market(coin, cached)
     ):
         logger.info(f"[/predict/{coin}] Redis HIT")
         cached["from_cache"] = True
@@ -171,7 +211,7 @@ def predict_coin(coin: str):
     from shared.ml.registry import get_model_registry
     registry = get_model_registry()
     db_cached = registry.get_cached_prediction(coin)
-    if db_cached:
+    if db_cached and _cached_prediction_matches_market(coin, db_cached):
         logger.info(f"[/predict/{coin}] DB cache HIT")
         # Warm Redis for the next request
         cache.set(redis_key, db_cached, ttl=settings.REDIS_PREDICTION_TTL)
@@ -182,6 +222,8 @@ def predict_coin(coin: str):
             "computed_at": db_cached.get("computed_at"),
             "from_cache": True,
         }
+    if db_cached:
+        cache.delete(redis_key)
 
     # ── 3. Live inference fallback ─────────────────────────────────────────
     logger.info(f"[/predict/{coin}] Cache MISS — running live inference")
@@ -272,10 +314,15 @@ def validate_model_endpoint(coin: str, days: int = Query(default=30, ge=1, le=12
     df = fetch_klines(f"{coin}USDT", limit=max(_coin_fetch_limit(coin), 200 + days))
     if df is None:
         raise HTTPException(status_code=503, detail="Live market data unavailable")
+    if _data_source_is_mock(df):
+        raise HTTPException(status_code=503, detail="Live market data unavailable; refusing mock-data validation")
 
     history = execute_rolling_backtest(coin, df, days=days)
     if history is None:
         return []
+    if isinstance(history, dict) and history.get("error"):
+        logger.warning(f"[/validate/{coin}] {history['error']}")
+        return history
 
     cache.set(cache_key, history, ttl=settings.REDIS_VALIDATION_TTL)
     return history

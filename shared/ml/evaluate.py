@@ -31,7 +31,13 @@ def _predict_batch_with_uncertainty(model, X: np.ndarray, n_iter: int = 50):
     return np.mean(preds, axis=0), np.percentile(preds, 5, axis=0), np.percentile(preds, 95, axis=0)
 
 
-def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, forecast_horizon: int = 3):
+def execute_rolling_backtest(
+    coin: str,
+    df: pd.DataFrame,
+    days: int = 30,
+    forecast_horizon: int = 1,
+    n_iter: int = 10,
+):
     from shared.ml.registry import get_model_registry
 
     registry = get_model_registry()
@@ -42,7 +48,7 @@ def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, foreca
         return None
 
     lookback = metadata["config"]["lookback"]
-    horizon = metadata["config"].get("forecast_horizon", model.output_shape[1])
+    horizon = int(metadata["config"].get("forecast_horizon", model.output_shape[1]))
 
     required_len = lookback + days + horizon
     if len(df) < required_len:
@@ -88,7 +94,7 @@ def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, foreca
         scaled_window = scaler.transform(window)
         X_input = scaled_window.reshape(1, lookback, scaled_window.shape[1])
 
-        neural_scaled, neural_lower_scaled, neural_upper_scaled = predict_with_uncertainty(model, X_input, n_iter=50)
+        neural_scaled, neural_lower_scaled, neural_upper_scaled = predict_with_uncertainty(model, X_input, n_iter=n_iter)
         tree_scaled = predict_tabular_model(tree_model, X_input)[0] if tree_model is not None else neural_scaled
 
         neural_price = target_scaler.inverse_transform(neural_scaled.reshape(-1, 1)).flatten()
@@ -107,7 +113,7 @@ def execute_rolling_backtest(coin: str, df: pd.DataFrame, days: int = 30, foreca
         )
 
         last_close = float(df_full.iloc[i - 1]["close"])
-        if _should_fallback_to_persistence(metadata, blended_mean, last_close):
+        if _should_fallback_to_persistence(metadata, blended_mean, last_close, coin=coin):
             fallback_mean, _, _ = _persistence_envelope(df_full.iloc[:i], horizon)
             blended_mean = fallback_mean
 

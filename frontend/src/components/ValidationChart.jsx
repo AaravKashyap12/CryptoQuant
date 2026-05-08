@@ -34,8 +34,9 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export function ValidationChart({ data }) {
+  const errorMessage = !Array.isArray(data) && data?.error ? data.error : null;
   const { chartData, avgError } = useMemo(() => {
-    if (!data?.length) return { chartData: [], avgError: null };
+    if (!Array.isArray(data) || !data.length) return { chartData: [], avgError: null };
     const cd = data.map(d => ({
       date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       Actual:    d.actual    ?? 0,
@@ -48,8 +49,8 @@ export function ValidationChart({ data }) {
 
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
-      <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.1em' }}>
-        NO VALIDATION DATA
+      <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.1em', padding: '0 24px' }}>
+        {errorMessage || 'NO VALIDATION DATA'}
       </div>
     );
   }

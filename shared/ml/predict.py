@@ -64,14 +64,36 @@ def _persistence_envelope(df, horizon: int):
     return mean, np.array(lower), np.array(upper)
 
 
-def _should_fallback_to_persistence(metadata: dict, blended_mean: np.ndarray, last_close: float) -> bool:
+def _max_one_day_move_for_coin(coin: str | None) -> float:
+    # BTC/ETH should not serve huge one-day jumps from a weak/noisy model. Smaller
+    # alts get more room because their daily volatility is naturally wider.
+    limits = {"BTC": 0.08, "ETH": 0.10, "BNB": 0.15, "SOL": 0.18, "ADA": 0.18}
+    return limits.get((coin or "").upper(), 0.15)
+
+
+def _should_fallback_to_persistence(
+    metadata: dict,
+    blended_mean: np.ndarray,
+    last_close: float,
+    coin: str | None = None,
+) -> bool:
+    from shared.ml.training import FORECAST_HORIZON
+
     forecast_horizon = metadata.get("config", {}).get("forecast_horizon")
-    feature_count = metadata.get("config", {}).get("features")
+    feature_count = metadata.get("config", {}).get("feature_count")
+    if feature_count is None:
+        feature_count = metadata.get("config", {}).get("features")
     current_feature_count = len(get_feature_columns())
+
+    try:
+        forecast_horizon = int(forecast_horizon)
+        feature_count = int(feature_count)
+    except (TypeError, ValueError):
+        return True
 
     legacy_artifact = (
         forecast_horizon is None
-        or forecast_horizon != 3
+        or forecast_horizon != FORECAST_HORIZON
         or feature_count is None
         or feature_count != current_feature_count
     )
@@ -82,7 +104,8 @@ def _should_fallback_to_persistence(metadata: dict, blended_mean: np.ndarray, la
         return True
     if np.any(blended_mean <= 0):
         return True
-    if np.max(np.abs(blended_mean - last_close) / max(last_close, 1.0)) > 1.0:
+    max_move = _max_one_day_move_for_coin(coin) if FORECAST_HORIZON == 1 else 0.50
+    if np.max(np.abs(blended_mean - last_close) / max(last_close, 1.0)) > max_move:
         return True
     return False
 
@@ -187,7 +210,8 @@ def get_latest_prediction(coin: str, df, n_iter: int = 50):
         weights=metadata.get("config", {}).get("ensemble_weights"),
     )
 
-    if _should_fallback_to_persistence(metadata, blended_mean, last_close):
+    degraded_to_persistence = _should_fallback_to_persistence(metadata, blended_mean, last_close, coin=coin)
+    if degraded_to_persistence:
         blended_mean, blended_lower, blended_upper = _persistence_envelope(df, horizon)
         mean_price = blended_mean.copy()
         lower_price = blended_lower.copy()
@@ -210,7 +234,7 @@ def get_latest_prediction(coin: str, df, n_iter: int = 50):
             "serving_mode": "weighted-neural-tree-persistence",
             "served_horizon": horizon,
             "mc_iterations": int(n_iter),
-            "degraded_to_persistence": bool(_should_fallback_to_persistence(metadata, blended_mean, last_close)),
+            "degraded_to_persistence": bool(degraded_to_persistence),
             "components": {
                 "neural": mean_price.tolist(),
                 "tree": tree_price.tolist(),

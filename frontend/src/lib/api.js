@@ -65,8 +65,17 @@ export const getMetrics = async (coin) => {
 };
 
 export const getValidation = async (coin, days = 30) => {
-  const res = await api.get(`/validate/${coin}`, { params: { days } });
-  return res.data;
+  try {
+    const res = await api.get(`/validate/${coin}`, {
+      params: { days },
+      timeout: 120_000,
+    });
+    return res.data;
+  } catch (error) {
+    return {
+      error: error.response?.data?.detail || 'VALIDATION UNAVAILABLE',
+    };
+  }
 };
 
 export const getSentiment = async () => {
