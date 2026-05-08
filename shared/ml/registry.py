@@ -59,7 +59,8 @@ class ModelRegistry:
         _Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
-        # In-memory model cache — holds all 5 coins simultaneously (LRU, max=5)
+        # In-memory model cache. Render free tier should keep this at 1 to
+        # avoid holding multiple TensorFlow graphs in RAM.
         self._model_cache: OrderedDict[str, tuple] = OrderedDict()
         self._meta_cache:  dict = {}   # coin → (timestamp_float, meta_dict)
 
@@ -150,14 +151,14 @@ class ModelRegistry:
         return new_version
 
     # ------------------------------------------------------------------
-    # Load model — fixed cache (all 5 coins, no K.clear_session)
+    # Load model
     # ------------------------------------------------------------------
     def load_latest_model(self, coin: str):
         """
         Returns (model, scaler, target_scaler, metadata).
-        Holds up to MAX_COINS models in memory — LRU eviction, no K.clear_session().
+        Holds up to settings.MODEL_CACHE_SIZE models in memory with LRU eviction.
         """
-        MAX_COINS = 5
+        max_models = max(1, int(settings.MODEL_CACHE_SIZE))
 
         meta = self.get_latest_version_metadata(coin)
         if not meta:
@@ -171,13 +172,12 @@ class ModelRegistry:
             self._model_cache.move_to_end(cache_key)
             return self._model_cache[cache_key]
 
-        if len(self._model_cache) >= MAX_COINS:
+        if len(self._model_cache) >= max_models:
             evict_key, _ = self._model_cache.popitem(last=False)
             print(f"[Cache EVICT] {evict_key} (LRU)")
-            # ✅ No K.clear_session() — other models stay valid
 
         try:
-            print(f"[Cache MISS] Downloading {coin} {version} …")
+            print(f"[Cache MISS] Downloading {coin} {version} ...")
             if settings.USE_S3:
                 with self._artifact_tmpdir() as tmp:
                     model_path = self.storage.load_model_to_path(meta["s3_key_prefix"], tmp)

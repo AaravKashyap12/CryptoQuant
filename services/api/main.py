@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from services.api.routes import endpoints
@@ -13,14 +13,18 @@ COINS = ["BTC", "ETH", "BNB", "SOL", "ADA"]
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Runs once at startup. Loads all 5 coin models into the registry cache
-    so the first user request is never a cold-load.
+    Runs once at startup. Paid instances can prewarm all models; Render free
+    tier stays lazy to avoid memory-limit restarts.
     """
+    from shared.core.config import settings
     from shared.ml.registry import get_model_registry
     registry = get_model_registry()
-    print("[Startup] Pre-warming models ...")
-    registry.prewarm_all(COINS)
-    print("[Startup] All models ready OK")
+    if settings.PREWARM_MODELS:
+        print("[Startup] Pre-warming models ...")
+        registry.prewarm_all(COINS)
+        print("[Startup] All models ready OK")
+    else:
+        print("[Startup] Model prewarm disabled; loading models lazily")
     yield
     # Shutdown cleanup
     registry.dispose()
@@ -61,7 +65,7 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "message": "Backend is running 🚀"}
+    return {"status": "ok", "message": "Backend is running"}
 
 
 # Mount all routes

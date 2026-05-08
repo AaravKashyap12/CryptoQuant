@@ -30,7 +30,7 @@ CryptoQuant turns exchange market data into short-range crypto forecasts with a 
 | **Tabular baseline** | Tree model trained from the same engineered sequence window for robust small-data performance. |
 | **Persistence anchor** | Keeps predictions close to recent market reality when model signal quality is weak. |
 | **Uncertainty bands** | 50 Monte Carlo passes used for neural uncertainty and ensemble confidence intervals. |
-| **Free market signals** | Binance public futures context: funding rate, open interest, long/short ratio, and taker buy/sell flow. |
+| **Free market signals** | Bybit public derivatives context: funding rate, open interest, long/short ratio, and 24h turnover. |
 | **Lazy validation** | 30-day walk-forward backtest runs only when requested, then caches results. |
 | **Live prices** | Binance WebSocket ticker stream for real-time price and 24h change. |
 | **Prediction cache** | Redis -> database store -> live inference fallback. |
@@ -42,7 +42,7 @@ CryptoQuant turns exchange market data into short-range crypto forecasts with a 
 ```mermaid
 flowchart TD
     A["CCXT exchanges<br/>OHLCV candles"] --> B["Feature engineering<br/>RSI, MACD, EMA, ATR, volume, sentiment"]
-    S["Free signal APIs<br/>funding, OI, long/short, taker flow"] --> B
+    S["Free signal APIs<br/>funding, OI, long/short, turnover"] --> B
     F["Fear & Greed Index"] --> B
 
     B --> C["Training pipeline<br/>local_train.py"]
@@ -89,7 +89,7 @@ The served response includes metadata such as `serving_mode`, `mc_iterations`, m
 | **Frontend** | React 19, Vite, Recharts, Framer Motion, lucide-react |
 | **Backend** | FastAPI, Uvicorn, SQLAlchemy, Pydantic Settings |
 | **ML** | TensorFlow CPU, scikit-learn, XGBoost, pandas, NumPy |
-| **Data** | CCXT, alternative.me, Binance public market endpoints |
+| **Data** | CCXT, alternative.me, Bybit public derivatives endpoints |
 | **Storage** | Supabase Postgres, Supabase S3-compatible storage |
 | **Cache** | Redis in production, in-process TTL fallback locally |
 | **Deployment** | Vercel frontend, Render backend, GitHub Actions training workflow |

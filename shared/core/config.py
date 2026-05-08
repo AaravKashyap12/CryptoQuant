@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     USE_S3: bool = os.getenv("USE_S3", "False").lower() == "true"
     USE_POSTGRES: bool = os.getenv("USE_POSTGRES", "False").lower() == "true"
     USE_REDIS: bool = os.getenv("USE_REDIS", "False").lower() == "true"
+    PREWARM_MODELS: bool = os.getenv("PREWARM_MODELS", "false").lower() == "true"
+    MODEL_CACHE_SIZE: int = int(os.getenv("MODEL_CACHE_SIZE", "1"))
     ALLOW_MOCK_DATA: bool = os.getenv("ALLOW_MOCK_DATA", "false").lower() == "true"
 
     # Database (Postgres / Supabase)

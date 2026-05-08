@@ -74,7 +74,9 @@ def fetch_klines(symbol: str, interval: str = None, limit: int = 500, allow_mock
       1. Redis (if USE_REDIS=true)  — survives restarts, shared across workers
       2. In-process dict             — fast local fallback / dev mode
 
-    CCXT exchange priority: kraken → coinbase → binance → kucoin → okx
+    CCXT exchange priority: kraken -> coinbase -> kucoin -> okx.
+    Binance is intentionally skipped by default because hosted IP ranges often
+    receive regional blocks from Binance.
     Returns None when live exchanges fail. Mock data is only returned when
     allow_mock=True or ALLOW_MOCK_DATA=true, so production paths never silently
     serve synthetic prices.
@@ -114,10 +116,10 @@ def fetch_klines(symbol: str, interval: str = None, limit: int = 500, allow_mock
     # BNB: KuCoin has 1500 rows (2022-present) vs Coinbase's 143 rows (2025-present)
     # without this, the fallback chain hits Coinbase first and starves BNB of training data.
     EXCHANGE_PRIORITY = {
-        "BNBUSDT": ["kucoin", "binance", "kraken", "okx"],
-        "ADAUSDT": ["kucoin", "kraken", "binance", "okx"],
+        "BNBUSDT": ["kucoin", "kraken", "okx"],
+        "ADAUSDT": ["kucoin", "kraken", "okx"],
     }
-    exchange_ids = EXCHANGE_PRIORITY.get(symbol, ["kraken", "coinbase", "kucoin", "okx", "binance"])
+    exchange_ids = EXCHANGE_PRIORITY.get(symbol, ["kraken", "coinbase", "kucoin", "okx"])
     timeframe    = "1d"
     if interval == "1h":  timeframe = "1h"
     elif interval == "15m": timeframe = "15m"
@@ -232,9 +234,9 @@ def fetch_market_context_data(symbol: str, limit: int = 500) -> pd.DataFrame:
     """
     Fetch public derivatives context for a symbol and return daily features.
 
-    Uses Binance futures public endpoints for funding-rate history and open
-    interest history. If either request fails, returns a neutral zero-filled
-    dataframe so training and inference stay operational.
+    Uses Bybit public endpoints for funding-rate history and open-interest
+    history. If either request fails, returns a neutral zero-filled dataframe so
+    training and inference stay operational.
     """
     cache_key = f"context:{symbol}:{limit}"
     cached = _MARKET_CONTEXT_CACHE.get(cache_key)
@@ -254,31 +256,38 @@ def fetch_market_context_data(symbol: str, limit: int = 500) -> pd.DataFrame:
 
     try:
         funding_resp = requests.get(
-            "https://fapi.binance.com/fapi/v1/fundingRate",
-            params={"symbol": symbol, "limit": min(max(limit * 3, 30), 1000)},
+            "https://api.bybit.com/v5/market/funding/history",
+            params={"category": "linear", "symbol": symbol, "limit": min(max(limit * 3, 30), 200)},
             timeout=10,
         )
         oi_resp = requests.get(
-            "https://fapi.binance.com/futures/data/openInterestHist",
-            params={"symbol": symbol, "period": "1d", "limit": min(max(limit, 30), 500)},
+            "https://api.bybit.com/v5/market/open-interest",
+            params={"category": "linear", "symbol": symbol, "intervalTime": "1d", "limit": min(max(limit, 30), 200)},
             timeout=10,
         )
         funding_resp.raise_for_status()
         oi_resp.raise_for_status()
 
-        funding_rows = funding_resp.json() or []
-        oi_rows = oi_resp.json() or []
+        funding_payload = funding_resp.json() or {}
+        oi_payload = oi_resp.json() or {}
+        if funding_payload.get("retCode") != 0:
+            raise ValueError(funding_payload.get("retMsg") or "Bybit funding payload error")
+        if oi_payload.get("retCode") != 0:
+            raise ValueError(oi_payload.get("retMsg") or "Bybit open-interest payload error")
+
+        funding_rows = funding_payload.get("result", {}).get("list", []) or []
+        oi_rows = oi_payload.get("result", {}).get("list", []) or []
         if not funding_rows or not oi_rows:
             raise ValueError("empty market context payload")
 
         funding_df = pd.DataFrame(funding_rows)
-        funding_df["open_time"] = pd.to_datetime(funding_df["fundingTime"], unit="ms").dt.floor("D")
+        funding_df["open_time"] = pd.to_datetime(funding_df["fundingRateTimestamp"], unit="ms").dt.floor("D")
         funding_df["funding_rate"] = pd.to_numeric(funding_df["fundingRate"], errors="coerce")
         funding_daily = funding_df.groupby("open_time", as_index=True)["funding_rate"].mean().to_frame()
 
         oi_df = pd.DataFrame(oi_rows)
         oi_df["open_time"] = pd.to_datetime(oi_df["timestamp"], unit="ms").dt.floor("D")
-        oi_df["open_interest"] = pd.to_numeric(oi_df["sumOpenInterest"], errors="coerce")
+        oi_df["open_interest"] = pd.to_numeric(oi_df["openInterest"], errors="coerce")
         oi_daily = oi_df.groupby("open_time", as_index=True)["open_interest"].last().to_frame()
         oi_daily["open_interest_change"] = oi_daily["open_interest"].pct_change().replace([np.inf, -np.inf], np.nan)
 
@@ -302,7 +311,7 @@ def fetch_market_context_data(symbol: str, limit: int = 500) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def get_current_price(symbol: str) -> float | None:
     base = symbol.replace("USDT", "")
-    for ex_id in ["kraken", "coinbase", "binance", "kucoin"]:
+    for ex_id in ["kraken", "coinbase", "kucoin", "okx"]:
         exchange = get_exchange_client(ex_id)
         if not exchange:
             continue

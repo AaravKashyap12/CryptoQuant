@@ -104,7 +104,7 @@ export function OnChainPanel({ coin, data, loading }) {
   const status = data?.status || (loading ? 'loading' : 'not_configured');
   const isLive = status === 'live';
   const signals = data?.signals || {};
-  const isFreeProvider = data?.provider === 'binance-public';
+  const isFreeProvider = ['binance-public', 'bybit-public', 'coingecko-public'].includes(data?.provider);
 
   const premiumRows = [
     ['exchange_netflow', 'EXCHANGE NETFLOW', 'Positive = exchange inflow'],
@@ -117,7 +117,9 @@ export function OnChainPanel({ coin, data, loading }) {
     ['funding_rate', 'FUNDING RATE', 'Positive = longs pay shorts'],
     ['open_interest_usd', 'OI VALUE', 'Notional futures exposure'],
     ['long_short_ratio', 'LONG / SHORT', 'Account positioning'],
-    ['taker_buy_sell_ratio', 'TAKER BUY/SELL', 'Aggressive flow proxy'],
+    data?.provider === 'binance-public'
+      ? ['taker_buy_sell_ratio', 'TAKER BUY/SELL', 'Aggressive flow proxy']
+      : ['volume_24h', '24H TURNOVER', 'Derivatives turnover proxy'],
     ['open_interest', 'OPEN INTEREST', 'Open futures contracts'],
   ];
   const rows = isFreeProvider ? freeRows : premiumRows;
