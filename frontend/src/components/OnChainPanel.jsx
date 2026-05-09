@@ -101,10 +101,10 @@ function OnChainRow({ label, value, sub, color, shimmer }) {
 }
 
 export function OnChainPanel({ coin, data, loading }) {
-  const status = data?.status || (loading ? 'loading' : 'not_configured');
+  const status = data?.status || (loading ? 'loading' : 'unavailable');
   const isLive = status === 'live';
   const signals = data?.signals || {};
-  const isFreeProvider = ['binance-public', 'bybit-public', 'coingecko-public'].includes(data?.provider);
+  const isFreeProvider = !data || ['binance-public', 'bybit-public', 'coingecko-public', 'free'].includes(data?.provider);
 
   const premiumRows = [
     ['exchange_netflow', 'EXCHANGE NETFLOW', 'Positive = exchange inflow'],
@@ -125,8 +125,8 @@ export function OnChainPanel({ coin, data, loading }) {
   const rows = isFreeProvider ? freeRows : premiumRows;
   const displayedSignalCount = rows.filter(([key]) => signals[key]).length;
 
-  const badge = isLive ? (isFreeProvider ? 'FREE LIVE' : 'LIVE') : status === 'unsupported' ? 'N/A' : status === 'loading' ? 'SYNCING' : 'SET API KEY';
-  const badgeColor = isLive ? 'var(--green)' : status === 'unsupported' ? 'var(--text-muted)' : 'var(--yellow)';
+  const badge = isLive ? (isFreeProvider ? 'FREE LIVE' : 'LIVE') : status === 'unsupported' ? 'N/A' : status === 'loading' ? 'SYNCING' : 'OFFLINE';
+  const badgeColor = isLive ? 'var(--green)' : status === 'unsupported' ? 'var(--text-muted)' : status === 'loading' ? 'var(--yellow)' : 'var(--text-muted)';
   const Icon = isLive ? CheckCircle2 : AlertCircle;
 
   return (
@@ -216,7 +216,7 @@ export function OnChainPanel({ coin, data, loading }) {
         >
           {isLive
             ? `${data.provider?.toUpperCase() || 'SIGNAL'} synced. ${displayedSignalCount} signal(s), ${isFreeProvider ? 'free derivatives proxies, not wallet-level on-chain.' : `${changeText(signals.active_addresses_7d)} active-address trend.`}`
-            : data?.message || 'Set GLASSNODE_API_KEY on the backend to enable live BTC and ETH on-chain signals.'}
+            : data?.message || 'Free public derivatives signals are temporarily unavailable.'}
         </p>
       </div>
     </div>

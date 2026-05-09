@@ -45,22 +45,39 @@ const COIN_META = {
   ADA: { symbol: '\u20b3', color: '#0033ad', label: 'CARDANO'  },
 };
 
+const LINKEDIN_URL = 'https://www.linkedin.com/in/aaravkashyapsingh/';
+
+function externalUrl(value, fallback, provider) {
+  const raw = String(value || '').trim();
+
+  if (provider === 'linkedin' && raw.includes('aaravkashyapsingh')) {
+    return LINKEDIN_URL;
+  }
+
+  if (!raw) return fallback;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^(www\.|github\.com|linkedin\.com|x\.com)/i.test(raw)) {
+    return `https://${raw}`;
+  }
+  return fallback;
+}
+
 // Social rail
 function SocialRail() {
   const links = [
     {
       label: 'GitHub',
-      href:  import.meta.env.VITE_GITHUB_URL   || 'https://github.com/AaravKashyap12',
+      href: externalUrl(import.meta.env.VITE_GITHUB_URL, 'https://github.com/AaravKashyap12', 'github'),
       icon:  <Github size={12} strokeWidth={1.8} />,
     },
     {
       label: 'LinkedIn',
-      href:  import.meta.env.VITE_LINKEDIN_URL || 'https://www.linkedin.com/in/aaravkashyapsingh',
+      href: externalUrl(import.meta.env.VITE_LINKEDIN_URL, LINKEDIN_URL, 'linkedin'),
       icon:  <Linkedin size={12} strokeWidth={1.8} />,
     },
     {
       label: 'X',
-      href:  import.meta.env.VITE_X_URL        || 'https://x.com/byaarav',
+      href: externalUrl(import.meta.env.VITE_X_URL, 'https://x.com/byaarav', 'x'),
       icon:  <XIcon size={11} />,
     },
   ];

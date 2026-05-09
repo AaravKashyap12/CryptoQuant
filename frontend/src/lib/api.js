@@ -10,13 +10,22 @@ import axios from 'axios';
  * The Vite proxy forwards /api/* -> localhost:8002 in development, so you
  * don't need VITE_API_URL set at all for normal local development.
  */
+const RENDER_API_ORIGIN = 'https://cryptoquant-api-plez.onrender.com';
+
 function resolveBaseURL() {
-  const explicit = import.meta.env.VITE_API_URL;
+  const explicit = String(import.meta.env.VITE_API_URL || '').trim();
   if (explicit) {
-    const base = explicit.replace(/\/$/, '');
-    return base.endsWith('/api/v1') ? base : `${base}/api/v1`;
+    const base = explicit
+      .replace(/\/+$/, '')
+      .replace(/\/api\/v1$/i, '');
+    return `${base}/api/v1`;
   }
-  // Dev: relative path - Vite proxy handles the forwarding
+
+  if (import.meta.env.PROD) {
+    return `${RENDER_API_ORIGIN}/api/v1`;
+  }
+
+  // Dev: relative path - Vite proxy handles the forwarding.
   return '/api/v1';
 }
 
@@ -33,7 +42,13 @@ api.interceptors.response.use(
     const status = err.response?.status;
     if (status === 401) console.error('[API] Unauthorized - check ADMIN_API_KEY');
     if (status === 404) console.warn('[API] 404 Not Found:', err.config?.url);
-    if (!err.response)  console.error('[API] Network error - is the backend running?');
+    if (!err.response) {
+      console.error('[API] Network error - is the backend running?', {
+        baseURL: err.config?.baseURL,
+        url: err.config?.url,
+        message: err.message,
+      });
+    }
     return Promise.reject(err);
   }
 );
