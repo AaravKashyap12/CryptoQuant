@@ -266,6 +266,13 @@ def predict_coin(coin: str):
         if safe_response:
             return safe_response
 
+    if not settings.ENABLE_LIVE_INFERENCE:
+        logger.info(f"[/predict/{coin}] no usable cache; serving market-persistence fallback")
+        safe_response = _market_persistence_response(coin, "no usable cached forecast and live inference disabled")
+        if safe_response:
+            return safe_response
+        raise HTTPException(status_code=503, detail="Live market data unavailable; no cached prediction")
+
     # ── 3. Live inference fallback ─────────────────────────────────────────
     logger.info(f"[/predict/{coin}] Cache MISS — running live inference")
     try:

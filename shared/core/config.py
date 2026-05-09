@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     PREWARM_MODELS: bool = os.getenv("PREWARM_MODELS", "false").lower() == "true"
     MODEL_CACHE_SIZE: int = int(os.getenv("MODEL_CACHE_SIZE", "5"))
     ALLOW_MOCK_DATA: bool = os.getenv("ALLOW_MOCK_DATA", "false").lower() == "true"
+    EXCHANGE_TIMEOUT_MS: int = int(os.getenv("EXCHANGE_TIMEOUT_MS", "3000"))
+    ENABLE_LIVE_INFERENCE: bool = os.getenv("ENABLE_LIVE_INFERENCE", "false").lower() == "true"
     CORS_ORIGINS: str = os.getenv(
         "CORS_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,https://cryptoquant.vercel.app",

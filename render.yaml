@@ -24,6 +24,10 @@ services:
         value: "false"
       - key: ALLOW_MOCK_DATA
         value: "false"
+      - key: EXCHANGE_TIMEOUT_MS
+        value: "3000"
+      - key: ENABLE_LIVE_INFERENCE
+        value: "false"
       - key: CORS_ORIGINS
         value: "https://cryptoquant.vercel.app"
       - key: ONCHAIN_PROVIDER

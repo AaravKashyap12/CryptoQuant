@@ -25,8 +25,10 @@ _MARKET_CONTEXT_CACHE: dict = {}
 
 def get_exchange_client(exchange_id: str):
     try:
+        from shared.core.config import settings
+
         exchange_class = getattr(ccxt, exchange_id)
-        return exchange_class({"enableRateLimit": True, "timeout": 10000})
+        return exchange_class({"enableRateLimit": True, "timeout": settings.EXCHANGE_TIMEOUT_MS})
     except Exception as e:
         logger.debug(f"Failed to init {exchange_id}: {e}")
         return None
@@ -111,7 +113,8 @@ def fetch_klines(symbol: str, interval: str = None, limit: int = 500, allow_mock
     # --- Live fetch ---
     base         = symbol.replace("USDT", "")
     target_pairs = [f"{base}/USDT", f"{base}/USD"]
-    # Promote kraken and coinbase for better reliability on Render (Binance often blocks Render/AWS IPs)
+    # Prefer exchanges that answer quickly from hosted IPs. Binance is skipped
+    # because hosted ranges often receive regional blocks.
     # Per-symbol exchange priority overrides.
     # BNB: KuCoin has 1500 rows (2022-present) vs Coinbase's 143 rows (2025-present)
     # without this, the fallback chain hits Coinbase first and starves BNB of training data.
@@ -119,7 +122,7 @@ def fetch_klines(symbol: str, interval: str = None, limit: int = 500, allow_mock
         "BNBUSDT": ["kucoin", "kraken", "okx"],
         "ADAUSDT": ["kucoin", "kraken", "okx"],
     }
-    exchange_ids = EXCHANGE_PRIORITY.get(symbol, ["kraken", "coinbase", "kucoin", "okx"])
+    exchange_ids = EXCHANGE_PRIORITY.get(symbol, ["coinbase", "kraken", "kucoin", "okx"])
     timeframe    = "1d"
     if interval == "1h":  timeframe = "1h"
     elif interval == "15m": timeframe = "15m"
@@ -311,7 +314,32 @@ def fetch_market_context_data(symbol: str, limit: int = 500) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def get_current_price(symbol: str) -> float | None:
     base = symbol.replace("USDT", "")
-    for ex_id in ["kraken", "coinbase", "kucoin", "okx"]:
+    direct_sources = [
+        (
+            f"https://api.exchange.coinbase.com/products/{base}-USD/ticker",
+            lambda payload: payload.get("price"),
+        ),
+        (
+            f"https://api.kucoin.com/api/v1/market/orderbook/level1?symbol={base}-USDT",
+            lambda payload: payload.get("data", {}).get("price"),
+        ),
+        (
+            f"https://www.okx.com/api/v5/market/ticker?instId={base}-USDT",
+            lambda payload: (payload.get("data") or [{}])[0].get("last"),
+        ),
+    ]
+
+    for url, extractor in direct_sources:
+        try:
+            response = requests.get(url, timeout=3)
+            response.raise_for_status()
+            value = extractor(response.json() or {})
+            if value:
+                return float(value)
+        except Exception:
+            continue
+
+    for ex_id in ["coinbase", "kucoin"]:
         exchange = get_exchange_client(ex_id)
         if not exchange:
             continue
