@@ -28,6 +28,14 @@ services:
         value: "3000"
       - key: ENABLE_LIVE_INFERENCE
         value: "false"
+      - key: PREDICTION_CACHE_ONLY
+        value: "true"
+      - key: STRICT_PREDICTION_SANITY
+        value: "false"
+      - key: ENABLE_MARKET_FALLBACK
+        value: "false"
+      - key: ENABLE_LIVE_BACKTEST
+        value: "false"
       - key: CORS_ORIGINS
         value: "https://cryptoquant.vercel.app"
       - key: ONCHAIN_PROVIDER

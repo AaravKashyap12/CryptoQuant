@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     ALLOW_MOCK_DATA: bool = os.getenv("ALLOW_MOCK_DATA", "false").lower() == "true"
     EXCHANGE_TIMEOUT_MS: int = int(os.getenv("EXCHANGE_TIMEOUT_MS", "3000"))
     ENABLE_LIVE_INFERENCE: bool = os.getenv("ENABLE_LIVE_INFERENCE", "false").lower() == "true"
+    PREDICTION_CACHE_ONLY: bool = os.getenv("PREDICTION_CACHE_ONLY", "true").lower() == "true"
+    STRICT_PREDICTION_SANITY: bool = os.getenv("STRICT_PREDICTION_SANITY", "false").lower() == "true"
+    ENABLE_MARKET_FALLBACK: bool = os.getenv("ENABLE_MARKET_FALLBACK", "false").lower() == "true"
+    ENABLE_LIVE_BACKTEST: bool = os.getenv("ENABLE_LIVE_BACKTEST", "false").lower() == "true"
     CORS_ORIGINS: str = os.getenv(
         "CORS_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,https://cryptoquant.vercel.app",

@@ -70,7 +70,9 @@ export const getMarketData = async (coin, limit = 100) => {
 };
 
 export const getPrediction = async (coin) => {
-  const res = await api.post(`/predict/${coin}`);
+  const res = await api.post(`/predict/${coin}`, null, {
+    timeout: 120_000,
+  });
   return res.data;
 };
 

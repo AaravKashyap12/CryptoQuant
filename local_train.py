@@ -49,12 +49,13 @@ def clear_stale_cache(registry):
     session = registry.Session()
     try:
         from sqlalchemy import delete
-        from shared.ml.registry import CachedPrediction
+        from shared.ml.registry import CachedPrediction, CachedValidation
 
         deleted = session.execute(delete(CachedPrediction))
+        session.execute(delete(CachedValidation))
         session.commit()
         count = deleted.rowcount if hasattr(deleted, "rowcount") else "all"
-        print(f"{Fore.YELLOW}  Cleared {count} stale cached prediction(s) from DB{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}  Cleared {count} stale cached prediction(s) and validation cache from DB{Style.RESET_ALL}")
     except Exception as e:
         session.rollback()
         print(f"{Fore.YELLOW}  [WARN] Could not clear cache: {e}{Style.RESET_ALL}")
@@ -103,6 +104,8 @@ def run_local_training():
     from shared.ml.training import train_job_all_coins
     from shared.ml.predict import run_prediction_batch
     from shared.ml.registry import get_model_registry
+    from shared.ml.evaluate import execute_rolling_backtest
+    from shared.utils.data_fetcher import fetch_klines
 
     registry = get_model_registry()
 
@@ -115,12 +118,12 @@ def run_local_training():
     # ── Step 1: Clear stale cache BEFORE training ──────────────────────────
     # This ensures the dashboard shows nothing rather than wrong old values
     # while the new models are being trained and predictions recomputed.
-    print(f"\n{Fore.CYAN}Step 1/3 — Clearing stale prediction cache …{Style.RESET_ALL}")
+    print(f"\n{Fore.CYAN}Step 1/4 — Clearing stale prediction cache …{Style.RESET_ALL}")
     clear_stale_cache(registry)
 
     # ── Step 2: Train ──────────────────────────────────────────────────────
     try:
-        print(f"\n{Fore.CYAN}Step 2/3 — Training models …{Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}Step 2/4 — Training models …{Style.RESET_ALL}")
         results = train_job_all_coins()
         print(f"{Fore.GREEN}Training complete:{Style.RESET_ALL}")
         for coin, version in results.items():
@@ -136,7 +139,7 @@ def run_local_training():
     # FIX: Previously this block swallowed ALL exceptions and printed SUCCESS
     # even when prediction batch failed — leaving stale predictions in DB.
     # Now we re-raise on failure and exit with code 1 so CI/CD catches it.
-    print(f"\n{Fore.CYAN}Step 3/3 — Pre-computing predictions (n_iter=50) …{Style.RESET_ALL}")
+    print(f"\n{Fore.CYAN}Step 3/4 — Pre-computing predictions (n_iter=50) …{Style.RESET_ALL}")
     try:
         pred_results = run_prediction_batch(n_iter=50)
         all_pred_ok = True
@@ -161,8 +164,31 @@ def run_local_training():
         print(f"The API will fall back to live inference — run this script again to fix.{Style.RESET_ALL}")
         sys.exit(1)
 
+    print(f"\n{Fore.CYAN}Step 4/4 — Pre-computing 30-day validation histories …{Style.RESET_ALL}")
+    try:
+        from shared.ml.training import COIN_CONFIG, COINS
+        for coin in COINS:
+            meta = registry.get_latest_version_metadata(coin)
+            if not meta:
+                print(f"  {Fore.YELLOW}{coin}: skipped (no model metadata){Style.RESET_ALL}")
+                continue
+
+            df = fetch_klines(f"{coin}USDT", limit=max(COIN_CONFIG.get(coin, {}).get("limit", 500), 230))
+            if df is None or ("source" in df.columns and str(df["source"].iloc[0]).lower() == "mock"):
+                print(f"  {Fore.YELLOW}{coin}: skipped (live market data unavailable){Style.RESET_ALL}")
+                continue
+
+            history = execute_rolling_backtest(coin, df, days=30)
+            if isinstance(history, list) and history:
+                registry.save_cached_validation(coin, 30, meta["version"], history)
+                print(f"  {Fore.GREEN}{coin}: cached {len(history)} validation point(s){Style.RESET_ALL}")
+            else:
+                print(f"  {Fore.YELLOW}{coin}: skipped ({history or 'no validation data'}){Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.YELLOW}  [WARN] Validation precompute failed: {e}{Style.RESET_ALL}")
+
     print("\n" + "-" * 40)
-    print(f"{Fore.GREEN}{Style.BRIGHT}SUCCESS — models trained and predictions pre-computed!{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}{Style.BRIGHT}SUCCESS — models, predictions, and validation caches are ready!{Style.RESET_ALL}")
     
     # NEW: Flush validation/prediction caches so the dashboard updates immediately
     try:

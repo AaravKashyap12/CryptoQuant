@@ -36,6 +36,17 @@ class CachedPrediction(_Base):
     metadata_    = Column("metadata", JSON)
 
 
+class CachedValidation(_Base):
+    """Stores precomputed rolling backtest history for fast dashboard reads."""
+    __tablename__ = "cached_validations"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    coin         = Column(String, index=True)
+    days         = Column(Integer, index=True)
+    version      = Column(String, index=True)
+    computed_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    history      = Column(JSON)
+
+
 class ModelRegistry:
     def __init__(self):
         self.storage = get_artifact_store()
@@ -307,6 +318,55 @@ class ModelRegistry:
         except Exception as e:
             session.rollback()
             print(f"[PredictionStore] Save failed for {coin}: {e}")
+        finally:
+            session.close()
+
+    def get_cached_validation(self, coin: str, days: int, version: str):
+        session = self.Session()
+        try:
+            row = (
+                session.query(CachedValidation)
+                .filter_by(coin=coin, days=days, version=version)
+                .order_by(CachedValidation.id.desc())
+                .first()
+            )
+            if row is None:
+                return None
+
+            age_hours = (
+                datetime.now(timezone.utc) - row.computed_at.replace(tzinfo=timezone.utc)
+            ).total_seconds() / 3600
+            if age_hours > settings.PREDICTION_STALE_HOURS:
+                return None
+            return row.history
+        finally:
+            session.close()
+
+    def save_cached_validation(self, coin: str, days: int, version: str, history):
+        session = self.Session()
+        try:
+            existing = (
+                session.query(CachedValidation)
+                .filter_by(coin=coin, days=days, version=version)
+                .first()
+            )
+            now = datetime.now(timezone.utc)
+            if existing:
+                existing.history = history
+                existing.computed_at = now
+            else:
+                session.add(CachedValidation(
+                    coin=coin,
+                    days=days,
+                    version=version,
+                    history=history,
+                    computed_at=now,
+                ))
+            session.commit()
+            print(f"[ValidationStore] Saved {coin} {days}d {version}")
+        except Exception as e:
+            session.rollback()
+            print(f"[ValidationStore] Save failed for {coin}: {e}")
         finally:
             session.close()
 

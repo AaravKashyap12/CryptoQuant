@@ -79,6 +79,29 @@ def _cached_prediction_matches_market(coin: str, cached: dict) -> bool:
         return True
 
 
+def _cached_prediction_is_servable(coin: str, cached: dict) -> bool:
+    from shared.core.config import settings
+    from shared.ml.training import FORECAST_HORIZON
+
+    if not cached:
+        return False
+
+    forecast = (cached.get("forecast") or {})
+    metadata = cached.get("metadata") or {}
+
+    if len(forecast.get("mean") or []) != FORECAST_HORIZON:
+        return False
+    if not _forecast_is_usable(forecast):
+        return False
+    if metadata.get("serving_mode") not in VALID_SERVING_MODES:
+        return False
+    if not _metadata_allows_cached_serving(metadata):
+        return False
+    if settings.STRICT_PREDICTION_SANITY and not _cached_prediction_matches_market(coin, cached):
+        return False
+    return True
+
+
 def _market_persistence_response(coin: str, reason: str):
     try:
         from shared.utils.data_fetcher import fetch_klines
@@ -225,19 +248,10 @@ def predict_coin(coin: str):
     # ── 1. Check Redis ──────────────────────────────────────────────────────
     from shared.core.config import settings
     from shared.ml.cache import cache
-    from shared.ml.training import FORECAST_HORIZON
-
     redis_key = f"pred:{coin}"
     cached    = cache.get(redis_key)
     had_invalid_cache = False
-    if (
-        cached
-        and len(((cached.get("forecast") or {}).get("mean") or [])) == FORECAST_HORIZON
-        and _forecast_is_usable(cached.get("forecast"))
-        and ((cached.get("metadata") or {}).get("serving_mode") in VALID_SERVING_MODES)
-        and _metadata_allows_cached_serving(cached.get("metadata"))
-        and _cached_prediction_matches_market(coin, cached)
-    ):
+    if _cached_prediction_is_servable(coin, cached):
         logger.info(f"[/predict/{coin}] Redis HIT")
         cached["from_cache"] = True
         return cached
@@ -249,7 +263,7 @@ def predict_coin(coin: str):
     from shared.ml.registry import get_model_registry
     registry = get_model_registry()
     db_cached = registry.get_cached_prediction(coin)
-    if db_cached and _cached_prediction_matches_market(coin, db_cached):
+    if _cached_prediction_is_servable(coin, db_cached):
         logger.info(f"[/predict/{coin}] DB cache HIT")
         # Warm Redis for the next request
         cache.set(redis_key, db_cached, ttl=settings.REDIS_PREDICTION_TTL)
@@ -262,15 +276,21 @@ def predict_coin(coin: str):
         }
     if db_cached or had_invalid_cache:
         cache.delete(redis_key)
-        safe_response = _market_persistence_response(coin, "cached forecast failed live-price sanity check")
-        if safe_response:
-            return safe_response
+        if settings.ENABLE_MARKET_FALLBACK:
+            safe_response = _market_persistence_response(coin, "cached forecast failed live-price sanity check")
+            if safe_response:
+                return safe_response
+
+    if settings.PREDICTION_CACHE_ONLY:
+        logger.info(f"[/predict/{coin}] no usable cached forecast; cache-only mode")
+        raise HTTPException(status_code=503, detail="No fresh cached prediction. Run local_train.py to publish one.")
 
     if not settings.ENABLE_LIVE_INFERENCE:
         logger.info(f"[/predict/{coin}] no usable cache; serving market-persistence fallback")
-        safe_response = _market_persistence_response(coin, "no usable cached forecast and live inference disabled")
-        if safe_response:
-            return safe_response
+        if settings.ENABLE_MARKET_FALLBACK:
+            safe_response = _market_persistence_response(coin, "no usable cached forecast and live inference disabled")
+            if safe_response:
+                return safe_response
         raise HTTPException(status_code=503, detail="Live market data unavailable; no cached prediction")
 
     # ── 3. Live inference fallback ─────────────────────────────────────────
@@ -350,11 +370,23 @@ def validate_model_endpoint(coin: str, days: int = Query(default=30, ge=1, le=12
     meta = registry.get_latest_version_metadata(coin)
     version = meta["version"] if meta else "no-model"
 
+    db_cached = registry.get_cached_validation(coin, days, version)
+    if db_cached is not None:
+        return db_cached
+
     cache_key = f"validate:{coin}:{days}:{version}"
     cached = cache.get(cache_key)
     if cached is not None:
         logger.info(f"[/validate/{coin}] cache HIT")
         return cached
+
+    if not settings.ENABLE_LIVE_BACKTEST:
+        return {
+            "error": (
+                "Backtest is not computed on the production API. "
+                "Run local_train.py to precompute validation history."
+            )
+        }
 
     from shared.utils.data_fetcher import fetch_klines
     from shared.ml.evaluate import execute_rolling_backtest
@@ -373,6 +405,7 @@ def validate_model_endpoint(coin: str, days: int = Query(default=30, ge=1, le=12
         return history
 
     cache.set(cache_key, history, ttl=settings.REDIS_VALIDATION_TTL)
+    registry.save_cached_validation(coin, days, version, history)
     return history
 
 
