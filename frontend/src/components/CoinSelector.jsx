@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Github, Linkedin } from 'lucide-react';
+import React from 'react';
+import { motion } from 'framer-motion';
+import { Github, Linkedin } from 'lucide-react';
 
 function HexLogo({ size = 32 }) {
   return (
@@ -152,20 +152,24 @@ function SocialRail() {
 
 // Coin selector
 export function CoinSelector({ coins, selectedCoin, onSelect, livePrice, change24h }) {
-  const [open, setOpen] = useState(false);
-  const meta = COIN_META[selectedCoin] || { symbol: '\u25cf', color: '#00d4ff', label: selectedCoin };
   const isUp = (change24h ?? 0) >= 0;
+  const coinList = coins.length > 0 ? coins : ['BTC','ETH','BNB','SOL','ADA'];
 
   return (
     <header
       className="sticky top-0 z-50"
-      style={{ background:'rgba(8,11,15,0.96)', backdropFilter:'blur(14px)',
-        borderBottom:'1px solid var(--border)' }}
+      style={{
+        background: 'rgba(8,11,15,0.82)',
+        backdropFilter: 'blur(18px) saturate(125%)',
+        WebkitBackdropFilter: 'blur(18px) saturate(125%)',
+        borderBottom: '1px solid rgba(0,212,255,0.18)',
+        boxShadow: '0 16px 50px rgba(0,0,0,0.28)',
+      }}
     >
       <SocialRail />
 
       {/* Ticker tape */}
-      <div style={{ background:'var(--bg-panel)', borderBottom:'1px solid var(--border)',
+      <div style={{ background:'rgba(13,17,23,0.62)', borderBottom:'1px solid rgba(26,40,64,0.82)',
         height:'22px', overflow:'hidden', position:'relative' }}>
         <div className="ticker-inner"
           style={{ display:'flex', whiteSpace:'nowrap', height:'100%' }}>
@@ -191,8 +195,17 @@ export function CoinSelector({ coins, selectedCoin, onSelect, livePrice, change2
       </div>
 
       {/* Main nav */}
-      <div style={{ maxWidth:'1440px', margin:'0 auto', padding:'0 24px',
-        display:'flex', alignItems:'center', justifyContent:'space-between', height:'52px' }}>
+      <div style={{
+        maxWidth:'1440px',
+        margin:'0 auto',
+        padding:'10px 24px',
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        minHeight:'64px',
+        gap:'16px',
+        flexWrap:'wrap',
+      }}>
 
         {/* Logo */}
         <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
@@ -216,7 +229,8 @@ export function CoinSelector({ coins, selectedCoin, onSelect, livePrice, change2
             </div>
             <span style={{ fontSize:'20px', fontWeight:700, color:'var(--text-primary)',
               letterSpacing:'-0.02em' }}
-              className={isUp ? 'glow-text-green' : 'glow-text-red'}>
+              key={livePrice}
+              className={`${isUp ? 'glow-text-green price-flash-up' : 'glow-text-red price-flash-down'}`}>
               ${livePrice.toLocaleString(undefined, { minimumFractionDigits:2 })}
             </span>
             <span style={{ fontSize:'12px', fontWeight:500,
@@ -226,88 +240,29 @@ export function CoinSelector({ coins, selectedCoin, onSelect, livePrice, change2
           </div>
         )}
 
-        {/* Coin selector dropdown */}
-        <div style={{ position:'relative' }}>
-          <motion.button
-            whileHover={{ borderColor:'var(--accent)' }}
-            whileTap={{ scale:0.98 }}
-            onClick={() => setOpen(!open)}
-            style={{ display:'flex', alignItems:'center', gap:'10px',
-              background:'var(--bg-card)', border:'1px solid var(--border-bright)',
-              borderRadius:'3px', padding:'7px 14px', cursor:'pointer',
-              minWidth:'165px', justifyContent:'space-between' }}
-          >
-            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-              <span style={{ fontSize:'16px', color:meta.color }}>{meta.symbol}</span>
-              <div>
-                <div style={{ fontFamily:'var(--font-mono)', fontSize:'12px', fontWeight:600,
-                  color:'var(--text-primary)', letterSpacing:'0.06em' }}>{selectedCoin}/USDT</div>
-                <div style={{ fontFamily:'var(--font-mono)', fontSize:'9px',
-                  color:'var(--text-muted)', letterSpacing:'0.1em' }}>{meta.label}</div>
-              </div>
-            </div>
-            <ChevronDown size={13} color="var(--text-muted)"
-              style={{ transform: open ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }} />
-          </motion.button>
-
-          <AnimatePresence>
-            {open && (
-              <motion.div
-                initial={{ opacity:0, y:-8, scaleY:0.92 }}
-                animate={{ opacity:1, y:0, scaleY:1 }}
-                exit={{ opacity:0, y:-8, scaleY:0.92 }}
-                transition={{ duration:0.14 }}
-                style={{ position:'absolute', right:0, top:'calc(100% + 4px)',
-                  background:'var(--bg-card)', border:'1px solid var(--border-bright)',
-                  borderRadius:'3px', minWidth:'200px', overflow:'hidden',
-                  boxShadow:'0 20px 48px rgba(0,0,0,0.65)', zIndex:100,
-                  transformOrigin:'top' }}
+        <div className="coin-pill-row" aria-label="Select market">
+          {coinList.map((coin, index) => {
+            const meta = COIN_META[coin] || { symbol: '\u25cf', color: '#00d4ff', label: coin };
+            const active = coin === selectedCoin;
+            return (
+              <motion.button
+                key={coin}
+                type="button"
+                className={`coin-pill ${active ? 'active' : ''}`}
+                onClick={() => onSelect(coin)}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.12 + index * 0.035, duration: 0.34 }}
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.97 }}
+                aria-pressed={active}
+                title={meta.label}
               >
-                <div style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)',
-                  fontFamily:'var(--font-mono)', fontSize:'9px',
-                  color:'var(--text-muted)', letterSpacing:'0.15em' }}>
-                  SELECT INSTRUMENT
-                </div>
-                {(coins.length > 0 ? coins : ['BTC','ETH','BNB','SOL','ADA']).map(c => {
-                  const m = COIN_META[c] || {};
-                  const isSel = c === selectedCoin;
-                  return (
-                    <button
-                      key={c}
-                      onClick={() => { onSelect(c); setOpen(false); }}
-                      style={{ width:'100%', display:'flex', alignItems:'center',
-                        justifyContent:'space-between', padding:'10px 14px',
-                        background: isSel ? 'rgba(0,212,255,0.06)' : 'transparent',
-                        border:'none', cursor:'pointer',
-                        borderLeft: isSel ? '2px solid var(--accent)' : '2px solid transparent',
-                        transition:'all 0.1s' }}
-                      onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                      onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-                        <span style={{ fontSize:'14px', color:m.color, width:'18px', textAlign:'center' }}>
-                          {m.symbol}
-                        </span>
-                        <div style={{ textAlign:'left' }}>
-                          <div style={{ fontFamily:'var(--font-mono)', fontSize:'12px',
-                            fontWeight: isSel ? 600 : 400,
-                            color: isSel ? 'var(--accent)' : 'var(--text-primary)' }}>
-                            {c}/USDT
-                          </div>
-                          <div style={{ fontFamily:'var(--font-mono)', fontSize:'9px',
-                            color:'var(--text-muted)', letterSpacing:'0.1em' }}>{m.label}</div>
-                        </div>
-                      </div>
-                      {isSel && (
-                        <div style={{ width:'6px', height:'6px', borderRadius:'50%',
-                          background:'var(--accent)', boxShadow:'0 0 8px var(--accent)' }} />
-                      )}
-                    </button>
-                  );
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <span className="coin-pill-symbol" style={{ color: meta.color }}>{meta.symbol}</span>
+                <span>{coin}</span>
+              </motion.button>
+            );
+          })}
         </div>
       </div>
     </header>

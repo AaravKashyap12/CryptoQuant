@@ -4,16 +4,13 @@
 
 # CryptoQuant
 
-**Quantitative Analytics Terminal for Crypto Forecasting**
+**Frontend-only crypto forecasting dashboard**
 
-A full-stack ML forecasting dashboard powered by a weighted Neural + Tree + Persistence ensemble, Monte Carlo Dropout uncertainty bands, free market-structure signals, and a production cache designed for a Vercel frontend and Render backend.
+CryptoQuant is now a pure Vite + React + TF.js app. It uses free public market APIs in the browser and loads locally trained models from `frontend/public/models`.
 
-[![Stars](https://img.shields.io/github/stars/AaravKashyap12/CryptoQuant?style=flat-square)](https://github.com/AaravKashyap12/CryptoQuant/stargazers)
 [![React](https://img.shields.io/badge/React-19-00d4ff?style=flat-square)](https://react.dev)
-[![FastAPI](https://img.shields.io/badge/FastAPI-ML_API-00e676?style=flat-square)](https://fastapi.tiangolo.com)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-CPU-ff9100?style=flat-square)](https://tensorflow.org)
-
-[Live Demo](https://cryptoquant.vercel.app) · [Report Bug](https://github.com/AaravKashyap12/CryptoQuant/issues)
+[![Vite](https://img.shields.io/badge/Vite-Frontend-646cff?style=flat-square)](https://vite.dev)
+[![TensorFlow.js](https://img.shields.io/badge/TensorFlow.js-Browser-ff9100?style=flat-square)](https://www.tensorflow.org/js)
 
 </div>
 
@@ -21,19 +18,16 @@ A full-stack ML forecasting dashboard powered by a weighted Neural + Tree + Pers
 
 ## What It Does
 
-CryptoQuant turns exchange market data into short-range crypto forecasts with a transparent model breakdown. It is built as an ML engineering showcase: real training pipeline, model registry, cached inference, live market data, uncertainty intervals, and a production-style frontend.
-
 | Capability | Details |
 |---|---|
-| **1-day ensemble forecast** | Combines neural, tree, and persistence components with explicit serving metadata. |
-| **Hybrid neural leg** | LSTM + CNN architecture with attention-style sequence learning and MC Dropout uncertainty. |
-| **Tabular baseline** | Tree model trained from the same engineered sequence window for robust small-data performance. |
-| **Persistence anchor** | Keeps predictions close to recent market reality when model signal quality is weak. |
-| **Uncertainty bands** | 50 Monte Carlo passes used for neural uncertainty and ensemble confidence intervals. |
-| **Free market signals** | Bybit public derivatives context: funding rate, open interest, long/short ratio, and 24h turnover. |
-| **Lazy validation** | 30-day walk-forward backtest runs only when requested, then caches results. |
-| **Live prices** | Binance WebSocket ticker stream for real-time price and 24h change. |
-| **Prediction cache** | Redis -> database store -> live inference fallback. |
+| **Market data** | Daily OHLCV candles come from Binance public REST APIs. |
+| **Live price** | Binance WebSocket ticker stream powers the live price tile. |
+| **Sentiment** | Fear & Greed Index comes from alternative.me. |
+| **Market signals** | CoinGecko public market data provides free volume, market-cap, and price-change proxies. |
+| **Prediction** | The frontend tries `/models/<COIN>/model.json` with TF.js. If no model exists, it falls back to a statistical volatility baseline. |
+| **Validation** | The 30-day backtest is computed in-browser from recent candle windows. |
+
+No FastAPI server, Render service, Redis cache, database registry, or GitHub Actions retraining job is required.
 
 ---
 
@@ -41,96 +35,15 @@ CryptoQuant turns exchange market data into short-range crypto forecasts with a 
 
 ```mermaid
 flowchart TD
-    A["CCXT exchanges<br/>OHLCV candles"] --> B["Feature engineering<br/>RSI, MACD, EMA, ATR, volume, sentiment"]
-    S["Free signal APIs<br/>funding, OI, long/short, turnover"] --> B
-    F["Fear & Greed Index"] --> B
-
-    B --> C["Training pipeline<br/>local_train.py"]
-    C --> D["Hybrid LSTM-CNN<br/>neural model"]
-    C --> E["Tabular tree baseline"]
-    C --> P["Persistence baseline"]
-
-    D --> R["Model registry"]
-    E --> R
-    P --> R
-    R --> DB["Supabase Postgres<br/>versions + cached predictions"]
-    R --> ST["Supabase S3<br/>model artifacts + scalers"]
-
-    DB --> API["FastAPI backend<br/>Render"]
-    ST --> API
-    API --> CACHE["Redis or local TTL cache"]
-    CACHE --> API
-    API --> UI["React terminal UI<br/>Vercel"]
-```
-
----
-
-## Model Pipeline
-
-The training path is chronological and leak-aware:
-
-1. Fetches OHLCV data from multiple exchanges.
-2. Adds technical, sentiment, volume, and market-context features.
-3. Builds sequence windows for the neural model and tabular snapshots for the baseline.
-4. Splits train / validation / test chronologically.
-5. Fits scalers only on training data.
-6. Trains the neural and tabular legs.
-7. Evaluates MAE, RMSE, and directional accuracy.
-8. Registers the model only if it is eligible for cached serving.
-
-The served response includes metadata such as `serving_mode`, `mc_iterations`, model version, and cached-serving eligibility so the frontend can explain what users are seeing.
-
----
-
-## Tech Stack
-
-| Layer | Stack |
-|---|---|
-| **Frontend** | React 19, Vite, Recharts, Framer Motion, lucide-react |
-| **Backend** | FastAPI, Uvicorn, SQLAlchemy, Pydantic Settings |
-| **ML** | TensorFlow CPU, scikit-learn, XGBoost, pandas, NumPy |
-| **Data** | CCXT, alternative.me, Bybit public derivatives endpoints |
-| **Storage** | Supabase Postgres, Supabase S3-compatible storage |
-| **Cache** | Redis in production, in-process TTL fallback locally |
-| **Deployment** | Vercel frontend, Render backend, GitHub Actions training workflow |
-
----
-
-## Project Structure
-
-```text
-CryptoQuant/
-  local_train.py                 training + prediction precompute pipeline
-  render.yaml                    Render backend blueprint
-  requirements.txt               root Python requirements pointer
-
-  services/api/
-    main.py                      FastAPI app and model prewarm
-    routes/endpoints.py          public, admin, validation, and debug routes
-
-  shared/
-    core/config.py               app settings and env flags
-    ml/
-      models.py                  neural model builders
-      tabular.py                 tree baseline
-      training.py                train/evaluate/register pipeline
-      predict.py                 inference, MC Dropout, ensemble blend
-      registry.py                model registry and cached predictions
-      storage.py                 local/S3 storage strategy
-    utils/
-      data_fetcher.py            OHLCV, sentiment, market context
-      features.py                technical feature engineering
-      onchain_fetcher.py         free market signal provider
-      preprocess.py              train/inference preprocessing
-
-  frontend/
-    src/
-      App.jsx                    dashboard shell
-      components/                charts, metrics, explainer, signal panels
-      hooks/useLivePrice.js      Binance WebSocket live price hook
-      lib/api.js                 API client
-
-  tests/unit/                    regression and preprocessing tests
+    B["Binance public candles"] --> F["Browser feature builder<br/>RSI, MACD, EMA, ATR, volume, sentiment"]
+    G["Fear & Greed API"] --> F
+    C["CoinGecko public market data"] --> UI["React dashboard"]
+    F --> TF["TF.js model<br/>/models/BTC/model.json"]
+    TF --> UI
+    F --> BASE["Statistical fallback"]
+    BASE --> UI
+    L["local_train.py<br/>runs on your laptop"] --> M["frontend/public/models/<COIN>"]
+    M --> TF
 ```
 
 ---
@@ -138,25 +51,99 @@ CryptoQuant/
 ## Local Preview
 
 ```bash
-# backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python -m uvicorn services.api.main:app --host 127.0.0.1 --port 8002
-
-# frontend
 cd frontend
 npm install
 npm run dev
 ```
 
-The frontend uses the Vite proxy in local development, so it can call `/api/v1/*` without hardcoding the backend URL.
+Open the Vite URL shown in the terminal, usually `http://localhost:3000`.
+
+You can also run `run_dev.bat` on Windows; it starts only the frontend.
+
+---
+
+## Local Training
+
+Install the laptop training dependencies once:
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.local.txt
+```
+
+Train and export browser models:
+
+```bash
+python local_train.py
+```
+
+The trainer writes:
+
+```text
+frontend/public/models/BTC/model.json
+frontend/public/models/ETH/model.json
+frontend/public/models/BNB/model.json
+frontend/public/models/SOL/model.json
+frontend/public/models/ADA/model.json
+```
+
+If a model is missing or TF.js export fails, the dashboard still works using the browser statistical baseline.
+
+For the daily production refresh workflow, run:
+
+```bat
+train_and_push.bat
+```
+
+That script trains locally, stages `frontend/public/models`, commits changed model files, and pushes to GitHub. Vercel will redeploy from that push and serve the fresh static model files. Use `train_models.bat` when you want to train locally without pushing.
+
+---
+
+## Project Structure
+
+```text
+CryptoQuant/
+  local_train.py                 standalone laptop trainer
+  requirements.local.txt         local training dependencies only
+  run_dev.bat                    starts Vite frontend
+  train_models.bat               Windows model training launcher
+  train_and_push.bat             trains, commits model files, pushes
+  train_models.sh                macOS/Linux model training launcher
+
+  frontend/
+    public/models/               TF.js model exports for Vercel/static hosting
+    src/
+      App.jsx                    dashboard shell
+      components/                charts, metrics, explainer, signal panels
+      hooks/useLivePrice.js      Binance WebSocket live price hook
+      lib/api.js                 browser-only public data layer
+      lib/inference.js           TF.js model loading and feature builder
+```
+
+---
+
+## Push Checklist
+
+```bash
+cd frontend
+npm run lint
+npm run build
+cd ..
+cmd /c node --test frontend/src/lib/api.test.js frontend/src/lib/inference.test.js
+git status
+git add .
+git commit -m "Convert CryptoQuant to frontend-only app"
+git push origin main
+```
+
+After this frontend-only version is live, the old Render backend can be suspended or deleted. The app no longer uses `VITE_API_URL`, FastAPI, Redis, Supabase, or any backend route.
 
 ---
 
 ## Disclaimer
 
-CryptoQuant is an educational ML engineering project. It is not financial advice, and its forecasts should not be used as the sole basis for trading decisions.
+CryptoQuant is an educational ML project. It is not financial advice, and its forecasts should not be used as the sole basis for trading decisions.
 
 <div align="center">
 

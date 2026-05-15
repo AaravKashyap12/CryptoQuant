@@ -1,16 +1,20 @@
-# React + Vite
+# CryptoQuant Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Pure Vite + React dashboard. There is no local API server.
 
-Currently, two official plugins are available:
+```bash
+npm install
+npm run dev
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Data sources:
 
-## React Compiler
+- Binance REST daily candles
+- Binance WebSocket live ticker
+- alternative.me Fear & Greed Index
+- CoinGecko public market data
+- Optional TF.js models from `public/models/<COIN>/model.json`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+If a TF.js model is not present, the app falls back to a browser-side statistical forecast.
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+From the repo root, use `train_models.bat` to refresh local model files only, or `train_and_push.bat` to train, commit `frontend/public/models`, and push for Vercel redeploy.

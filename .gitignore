@@ -10,11 +10,13 @@ __pycache__/
 # Data and model artifacts
 data/
 registry.db
-models/
+/models/
 *.keras
 *.h5
 *.pkl
 *.onnx
+!frontend/public/models/
+!frontend/public/models/**
 
 # Secrets
 .env
@@ -46,3 +48,4 @@ local_storage_test/
 _reviewer_*/
 CryptoQuant-*-review*.zip
 .codex-runlogs/
+output/pdf-markdown/

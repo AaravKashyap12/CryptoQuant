@@ -6,15 +6,6 @@ export default defineConfig({
     plugins: [react()],
     server: {
         port: 3000,
-        // Proxy /api requests to the local FastAPI server during development.
-        // This avoids CORS issues and means you don't need VITE_API_URL set locally.
-        proxy: {
-            '/api': {
-                target: 'http://127.0.0.1:8002',
-                changeOrigin: true,
-                rewrite: path => path,
-            },
-        },
     },
     build: {
         // Split vendor chunks to improve caching

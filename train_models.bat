@@ -20,7 +20,7 @@ if not exist "venv\Scripts\activate.bat" (
     echo [ERROR] Virtual environment 'venv' not found.
     echo Please run these commands first:
     echo   python -m venv venv
-    echo   venv\Scripts\pip install -r requirements.txt
+    echo   venv\Scripts\pip install -r requirements.local.txt
     echo.
     echo Press any key to exit...
     pause >nul
@@ -48,17 +48,14 @@ if not exist "%PYTHON_EXE%" (
     exit /b 1
 )
 
-echo [2/3] Setting PYTHONPATH to project root...
-set PYTHONPATH=%CD%
-
-echo [3/3] Starting training pipeline...
+echo [2/3] Starting frontend model training...
 echo.
 
 "%PYTHON_EXE%" local_train.py
 
 echo.
 if %ERRORLEVEL% EQU 0 (
-    echo [OK] Training complete. Models and predictions uploaded to cloud storage.
+    echo [OK] Training complete. TF.js models are in frontend\public\models.
 ) else (
     echo [FAIL] Training failed with error code %ERRORLEVEL%. Check output above.
 )

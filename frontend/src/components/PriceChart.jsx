@@ -39,7 +39,7 @@ const CustomTooltip = ({ active, payload }) => {
   const isForecast = d.type === 'forecast';
 
   return (
-    <div style={{ background: '#060e18', border: '1px solid var(--border-bright)', borderRadius: '3px', padding: '12px 14px', minWidth: '190px', boxShadow: '0 8px 32px rgba(0,0,0,0.8)', fontFamily: 'var(--font-mono)' }}>
+    <div className="chart-tooltip-glow">
       <div style={{ fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.1em', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span>{d.date}</span>
         {isForecast && (
@@ -166,7 +166,7 @@ export function PriceChart({ data, forecast }) {
         </div>
       </div>
 
-      <div style={{ height: '400px' }}>
+      <div style={{ height: '400px', width: '100%', minWidth: 0, position: 'relative', zIndex: 1 }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 8, right: 60, left: 0, bottom: 0 }}>
             <defs>

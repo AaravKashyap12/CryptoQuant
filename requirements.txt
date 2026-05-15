@@ -1,1 +1,0 @@
--r services/api/requirements.txt

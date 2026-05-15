@@ -1,5 +1,3 @@
-import * as tf from '@tensorflow/tfjs';
-
 /**
  * Run edge-side TF.js inference for a coin.
  *
@@ -11,14 +9,19 @@ import * as tf from '@tensorflow/tfjs';
  *
  * @param {string} coin           - e.g. "BTC"
  * @param {number[][]} inputMatrix - shape (lookback, n_features) — scaled, all 15 features
- * @param {string} apiOrigin       - base URL without /api/v1, e.g. "https://api.example.com"
  * @returns {number[] | null}      - raw scaled output array, or null on error
  */
-export async function runEdgeInference(coin, inputMatrix, apiOrigin) {
+export async function runEdgeInference(coin, inputMatrix) {
     try {
-        // Strip any trailing /api/v1 the caller may accidentally include
-        const origin = apiOrigin.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
-        const modelUrl = `${origin}/api/v1/model/${coin}/tfjs/model.json`;
+        const modelUrl = `/models/${coin}/model.json`;
+        const tf = await import('@tensorflow/tfjs');
+
+        const modelResponse = await fetch(modelUrl, { cache: 'no-store' });
+        const contentType = modelResponse.headers.get('content-type') || '';
+        if (!modelResponse.ok || !contentType.includes('json')) {
+            console.info(`[EdgeInference] No browser model found for ${coin}; using statistical baseline.`);
+            return null;
+        }
 
         const model = await tf.loadLayersModel(modelUrl);
 

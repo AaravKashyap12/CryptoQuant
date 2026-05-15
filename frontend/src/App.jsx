@@ -45,12 +45,10 @@ function ForecastCard({ forecast, currentPrice }) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4 }}
-      className="forecast-summary-card"
+      whileHover={{ y: -3 }}
+      className="t-card t-card-accent forecast-summary-card"
       style={{
-        padding: '16px 20px',
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        borderTop: `2px solid ${isUp ? 'var(--green)' : 'var(--red)'}`,
+        padding: '20px 24px',
         borderRadius: '3px',
         marginBottom: '10px',
         display: 'grid',
@@ -82,8 +80,8 @@ function ForecastCard({ forecast, currentPrice }) {
             <span style={{ color: 'var(--text-muted)' }}>HIGH</span>
             <span style={{ color: 'var(--green)' }}>${upper?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
-          <div style={{ height: '4px', background: 'var(--border)', borderRadius: '2px', position: 'relative' }}>
-            <div style={{ position: 'absolute', left: '20%', right: '20%', top: 0, height: '100%', background: 'linear-gradient(90deg, var(--red), var(--yellow), var(--green))', borderRadius: '2px', opacity: 0.6 }} />
+          <div style={{ height: '5px', background: 'var(--border)', borderRadius: '999px', position: 'relative', overflow: 'hidden' }}>
+            <div className="confidence-fill" style={{ position: 'absolute', left: '20%', right: '20%', top: 0, height: '100%', background: 'linear-gradient(90deg, var(--red), var(--yellow), var(--green))', borderRadius: '999px' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
             <span style={{ color: 'var(--text-muted)' }}>LOW</span>
@@ -212,7 +210,7 @@ function App() {
         setError(null);
       } catch {
         if (retries-- > 0) setTimeout(init, 3000);
-        else setError('Backend unreachable. Check your deployment.');
+        else setError('Public market data temporarily unavailable. Try refreshing in a minute.');
       }
     }
     init();
@@ -326,7 +324,7 @@ function App() {
           <MetricsCard
             index={0}
             title="Live Price / 24h"
-            value={`$${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+            value={`$${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             subValue={`${displayChange >= 0 ? '+' : ''}${displayChange.toFixed(2)}% 24h`}
             trend={displayChange >= 0 ? 'up' : 'down'}
             indicator="live"
@@ -334,7 +332,7 @@ function App() {
           <MetricsCard
             index={1}
             title="1-Day Ensemble Forecast"
-            value={prediction ? `$${nextDayPred.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
+            value={prediction ? `$${nextDayPred.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
             subValue={prediction ? `${forecastDiff >= 0 ? '+' : ''}${forecastDiff.toFixed(2)}% from now` : 'Awaiting model...'}
             trend={forecastTrend}
             accent="var(--yellow)"
@@ -356,7 +354,8 @@ function App() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.4 }}
-          className="t-card t-card-accent"
+          whileHover={{ y: -3 }}
+          className="t-card t-card-accent chart-shell"
           style={{ padding: '20px', marginBottom: '10px' }}
         >
           <PriceChart data={marketData} forecast={prediction?.forecast} />

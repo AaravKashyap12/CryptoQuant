@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
-    "axios": "^1.13.5",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.34.0",

@@ -13,11 +13,9 @@ elif [ -f ".venv/bin/activate" ]; then
     source .venv/bin/activate
 else
     echo "ERROR: No virtual environment found."
-    echo "Run:  python -m venv venv && pip install -r requirements.txt"
+    echo "Run:  python -m venv venv && pip install -r requirements.local.txt"
     exit 1
 fi
 
-export PYTHONPATH="$SCRIPT_DIR"
-
-echo "=== CryptoQuant Local Trainer ==="
+echo "=== CryptoQuant Frontend Model Trainer ==="
 python local_train.py

@@ -1,206 +1,257 @@
 """
-CryptoQuant local trainer.
+Standalone local trainer for the frontend-only CryptoQuant app.
 
-Run this script after pulling the latest data to:
-  1. Clear stale cached predictions from previous model versions
-  2. Train / fine-tune LSTM models for all 5 coins
-  3. Upload model artifacts to Supabase S3
-  4. Register new versions in the model registry
-  5. Pre-compute and store predictions in the cached_predictions table
-     so the API serves fast responses immediately after deployment.
+It fetches daily Binance candles, trains a small TF/Keras model per coin,
+and exports TF.js artifacts to:
+
+    frontend/public/models/BTC/model.json
+
+Run:
+    python local_train.py
 """
+from __future__ import annotations
+
+import json
+import math
 import os
-import sys
+import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
 
-import pandas as pd
+import numpy as np
+import tensorflow as tf
 
-sys.path.append(os.getcwd())
-
-from dotenv import load_dotenv
-load_dotenv()
-
-import colorama
-from colorama import Fore, Style
-colorama.init()
+COINS = ["BTC", "ETH", "BNB", "SOL", "ADA"]
+FEATURE_COUNT = 15
+LOOKBACK = 60
+LIMIT = 1000
+EPOCHS = int(os.getenv("CQ_EPOCHS", "30"))
+OUTPUT_ROOT = Path("frontend/public/models")
 
 
-def _continuity_summary(df):
-    diffs = df.index.to_series().diff().dropna()
-    if diffs.empty:
-        return "no continuity data", False
+def fetch_klines(symbol: str, limit: int = LIMIT) -> list[dict]:
+    query = urllib.parse.urlencode({
+        "symbol": symbol,
+        "interval": "1d",
+        "limit": limit,
+    })
+    url = f"https://api.binance.com/api/v3/klines?{query}"
+    with urllib.request.urlopen(url, timeout=30) as response:
+        rows = json.loads(response.read().decode("utf-8"))
 
-    median_days = diffs.median() / pd.Timedelta(days=1)
-    max_days = diffs.max() / pd.Timedelta(days=1)
-    tail_max_days = diffs.tail(120).max() / pd.Timedelta(days=1)
-    has_tail_gap = tail_max_days > 1.5
-    return (
-        f"median_gap={median_days:.1f}d, max_gap={max_days:.1f}d, tail_max_gap={tail_max_days:.1f}d",
-        has_tail_gap,
+    candles = []
+    for row in rows:
+        candles.append({
+            "open_time": int(row[0]),
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": float(row[5]),
+        })
+    return candles
+
+
+def ema(values: np.ndarray, period: int) -> np.ndarray:
+    result = np.zeros_like(values, dtype=np.float32)
+    result[0] = values[0]
+    alpha = 2 / (period + 1)
+    for i in range(1, len(values)):
+        result[i] = values[i] * alpha + result[i - 1] * (1 - alpha)
+    return result
+
+
+def rolling_mean(values: np.ndarray, period: int) -> np.ndarray:
+    result = np.zeros_like(values, dtype=np.float32)
+    for i in range(len(values)):
+        start = max(0, i - period + 1)
+        result[i] = float(np.mean(values[start:i + 1]))
+    return result
+
+
+def rsi(closes: np.ndarray, period: int = 14) -> np.ndarray:
+    result = np.full(len(closes), 50.0, dtype=np.float32)
+    if len(closes) <= period:
+        return result
+
+    deltas = np.diff(closes)
+    gains = np.maximum(deltas, 0)
+    losses = np.maximum(-deltas, 0)
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    result[period] = 100 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)
+
+    for i in range(period + 1, len(closes)):
+        avg_gain = avg_gain * (1 - 1 / period) + float(gains[i - 1]) * (1 / period)
+        avg_loss = avg_loss * (1 - 1 / period) + float(losses[i - 1]) * (1 / period)
+        result[i] = 100 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)
+    return result
+
+
+def feature_rows(candles: list[dict], sentiment_score: float = 50) -> np.ndarray:
+    closes = np.array([c["close"] for c in candles], dtype=np.float32)
+    highs = np.array([c["high"] for c in candles], dtype=np.float32)
+    lows = np.array([c["low"] for c in candles], dtype=np.float32)
+    opens = np.array([c["open"] for c in candles], dtype=np.float32)
+    volumes = np.array([c["volume"] for c in candles], dtype=np.float32)
+
+    ema12 = ema(closes, 12)
+    ema26 = ema(closes, 26)
+    ema7 = ema(closes, 7)
+    ema25 = ema(closes, 25)
+    ema50 = ema(closes, 50)
+    macd_line = ema12 - ema26
+    macd_signal = ema(macd_line, 9)
+    macd_hist = macd_line - macd_signal
+
+    prev_close = np.concatenate(([closes[0]], closes[:-1]))
+    true_range = np.maximum.reduce([
+        highs - lows,
+        np.abs(highs - prev_close),
+        np.abs(lows - prev_close),
+    ])
+
+    rows = np.column_stack([
+        closes,
+        highs,
+        lows,
+        opens,
+        volumes,
+        rsi(closes),
+        macd_line,
+        macd_hist,
+        macd_signal,
+        ema7,
+        ema25,
+        ema50,
+        rolling_mean(true_range, 14),
+        rolling_mean(volumes, 20),
+        np.full(len(candles), sentiment_score, dtype=np.float32),
+    ]).astype(np.float32)
+
+    if rows.shape[1] != FEATURE_COUNT:
+        raise ValueError(f"Expected {FEATURE_COUNT} features, got {rows.shape[1]}")
+    return rows
+
+
+def build_samples(candles: list[dict], lookback: int = LOOKBACK) -> tuple[np.ndarray, np.ndarray]:
+    rows = feature_rows(candles)
+    closes = np.array([c["close"] for c in candles], dtype=np.float32)
+
+    X, y = [], []
+    for end in range(lookback + 50, len(rows) - 1):
+        X.append(rows[end - lookback:end])
+        y.append(closes[end])
+
+    if not X:
+        raise ValueError("Not enough candles to build training windows")
+    return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
+
+
+def build_model(lookback: int, feature_count: int, X_train: np.ndarray) -> tf.keras.Model:
+    normalizer = tf.keras.layers.Normalization(axis=-1, name="feature_normalizer")
+    normalizer.adapt(X_train.reshape(-1, feature_count))
+
+    inputs = tf.keras.Input(shape=(lookback, feature_count), name="features")
+    x = normalizer(inputs)
+    x = tf.keras.layers.LSTM(64, return_sequences=True)(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.LSTM(32)(x)
+    x = tf.keras.layers.Dense(32, activation="relu")(x)
+    outputs = tf.keras.layers.Dense(1, name="next_close")(x)
+    model = tf.keras.Model(inputs, outputs)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), loss="mse", metrics=["mae"])
+    return model
+
+
+def export_tfjs(model: tf.keras.Model, output_dir: Path) -> bool:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import tensorflowjs as tfjs
+
+        tfjs.converters.save_keras_model(model, str(output_dir))
+        return True
+    except Exception as exc:
+        fallback = output_dir / "model.keras"
+        model.save(fallback)
+        print(f"  [WARN] TF.js export failed: {exc}")
+        print(f"  Saved Keras fallback at {fallback}")
+        print("  Install tensorflowjs to export model.json: pip install tensorflowjs")
+        return False
+
+
+def train_coin(coin: str) -> dict:
+    symbol = f"{coin}USDT"
+    print(f"\n=== {symbol} ===")
+    candles = fetch_klines(symbol)
+    print(f"Fetched {len(candles)} daily candles")
+
+    X, y = build_samples(candles)
+    split = math.floor(len(X) * 0.8)
+    X_train, y_train = X[:split], y[:split]
+    X_val, y_val = X[split:], y[split:]
+
+    model = build_model(LOOKBACK, FEATURE_COUNT, X_train)
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=6, restore_best_weights=True),
+        tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", patience=3, factor=0.5, min_lr=1e-5),
+    ]
+    history = model.fit(
+        X_train,
+        y_train,
+        validation_data=(X_val, y_val),
+        epochs=EPOCHS,
+        batch_size=32,
+        callbacks=callbacks,
+        verbose=1,
     )
 
+    val_loss, val_mae = model.evaluate(X_val, y_val, verbose=0)
+    output_dir = OUTPUT_ROOT / coin
+    exported = export_tfjs(model, output_dir)
 
-def clear_stale_cache(registry):
-    """
-    Wipe cached_predictions table before retraining so the dashboard
-    never serves predictions from a model that no longer exists.
-    Previously, if run_prediction_batch failed silently, old stale
-    predictions kept being served indefinitely.
-    """
-    session = registry.Session()
-    try:
-        from sqlalchemy import delete
-        from shared.ml.registry import CachedPrediction, CachedValidation
-
-        deleted = session.execute(delete(CachedPrediction))
-        session.execute(delete(CachedValidation))
-        session.commit()
-        count = deleted.rowcount if hasattr(deleted, "rowcount") else "all"
-        print(f"{Fore.YELLOW}  Cleared {count} stale cached prediction(s) and validation cache from DB{Style.RESET_ALL}")
-    except Exception as e:
-        session.rollback()
-        print(f"{Fore.YELLOW}  [WARN] Could not clear cache: {e}{Style.RESET_ALL}")
-    finally:
-        session.close()
+    metadata = {
+        "coin": coin,
+        "symbol": symbol,
+        "lookback": LOOKBACK,
+        "feature_count": FEATURE_COUNT,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "samples": int(len(X)),
+        "validation_mae": float(val_mae),
+        "validation_loss": float(val_loss),
+        "tfjs_exported": exported,
+        "epochs_ran": len(history.history.get("loss", [])),
+    }
+    (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    print(f"Exported {coin} to {output_dir} (MAE {val_mae:,.2f})")
+    return metadata
 
 
-def check_data_availability():
-    """
-    Pre-flight check: verify each coin has enough rows before training.
-    Warns loudly if a coin will produce an undertrained model.
-    BNB in particular often returns <300 rows from fallback exchanges.
-    """
-    from shared.utils.data_fetcher import fetch_klines
-    from shared.ml.training import COIN_CONFIG, COINS
+def main() -> None:
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    print("CryptoQuant frontend-only local trainer")
+    print(f"Output: {OUTPUT_ROOT.resolve()}")
+    print(f"Epochs: {EPOCHS}")
 
-    print(f"\n{Fore.CYAN}Pre-flight — checking data availability …{Style.RESET_ALL}")
-    all_ok = True
+    results = {}
     for coin in COINS:
-        df = fetch_klines(f"{coin}USDT", limit=COIN_CONFIG.get(coin, {}).get("limit", 5000))
-        if df is None:
-            print(f"  {Fore.RED}[FAIL] {coin}: no data returned{Style.RESET_ALL}")
-            all_ok = False
-            continue
-        rows = len(df)
-        source = df["source"].iloc[0] if "source" in df.columns else "unknown"
-        colour = Fore.GREEN if rows >= 500 else Fore.RED
-        warn = "" if rows >= 500 else f"  <-- WARNING: only {rows} rows, model will be undertrained"
-        continuity, has_tail_gap = _continuity_summary(df)
-        if has_tail_gap:
-            warn += "  <-- WARNING: recent date gaps detected"
-            all_ok = False
-        print(f"  {colour}{coin}: {rows} rows from {source}; {continuity}{warn}{Style.RESET_ALL}")
-        if rows < 300:
-            all_ok = False
-    return all_ok
+        try:
+            results[coin] = train_coin(coin)
+            time.sleep(0.5)
+        except Exception as exc:
+            results[coin] = {"error": str(exc)}
+            print(f"[FAIL] {coin}: {exc}")
 
+    summary_path = OUTPUT_ROOT / "training-summary.json"
+    summary_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    print(f"\nSummary written to {summary_path}")
 
-def run_local_training():
-    print(f"\n{Fore.CYAN}{Style.BRIGHT}=== CryptoQuant Local Trainer ==={Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Storage : {os.getenv('S3_ENDPOINT_URL', 'Local')}{Style.RESET_ALL}")
-    db_url = os.getenv('DB_URL', '')
-    print(f"{Fore.YELLOW}Database: {db_url.split('@')[-1] if '@' in db_url else 'Local SQLite'}{Style.RESET_ALL}")
-    print("-" * 40)
-
-    from shared.ml.training import train_job_all_coins
-    from shared.ml.predict import run_prediction_batch
-    from shared.ml.registry import get_model_registry
-    from shared.ml.evaluate import execute_rolling_backtest
-    from shared.utils.data_fetcher import fetch_klines
-
-    registry = get_model_registry()
-
-    # ── Pre-flight ─────────────────────────────────────────────────────────
-    data_ok = check_data_availability()
-    if not data_ok:
-        print(f"\n{Fore.YELLOW}[WARN] Some coins have insufficient data. "
-              f"Continuing, but expect poor accuracy for flagged coins.{Style.RESET_ALL}")
-
-    # ── Step 1: Clear stale cache BEFORE training ──────────────────────────
-    # This ensures the dashboard shows nothing rather than wrong old values
-    # while the new models are being trained and predictions recomputed.
-    print(f"\n{Fore.CYAN}Step 1/4 — Clearing stale prediction cache …{Style.RESET_ALL}")
-    clear_stale_cache(registry)
-
-    # ── Step 2: Train ──────────────────────────────────────────────────────
-    try:
-        print(f"\n{Fore.CYAN}Step 2/4 — Training models …{Style.RESET_ALL}")
-        results = train_job_all_coins()
-        print(f"{Fore.GREEN}Training complete:{Style.RESET_ALL}")
-        for coin, version in results.items():
-            ok = not str(version).startswith("Error") and version != "skipped (insufficient data)"
-            colour = Fore.GREEN if ok else Fore.RED
-            print(f"  {colour}{coin}: {version}{Style.RESET_ALL}")
-    except Exception as e:
-        print(f"\n{Fore.RED}Training failed: {e}{Style.RESET_ALL}")
-        import traceback; traceback.print_exc()
-        sys.exit(1)
-
-    # ── Step 3: Pre-compute predictions ────────────────────────────────────
-    # FIX: Previously this block swallowed ALL exceptions and printed SUCCESS
-    # even when prediction batch failed — leaving stale predictions in DB.
-    # Now we re-raise on failure and exit with code 1 so CI/CD catches it.
-    print(f"\n{Fore.CYAN}Step 3/4 — Pre-computing predictions (n_iter=50) …{Style.RESET_ALL}")
-    try:
-        pred_results = run_prediction_batch(n_iter=50)
-        all_pred_ok = True
-        for coin, status in pred_results.items():
-            ok = status == "ok"
-            colour = Fore.GREEN if ok else Fore.RED
-            print(f"  {colour}{coin}: {status}{Style.RESET_ALL}")
-            if not ok:
-                all_pred_ok = False
-
-        if not all_pred_ok:
-            print(f"\n{Fore.YELLOW}[WARN] Some predictions failed — "
-                  f"affected coins will run live inference on first request.{Style.RESET_ALL}")
-        else:
-            print(f"\n{Fore.GREEN}All predictions pre-computed successfully.{Style.RESET_ALL}")
-
-    except Exception as e:
-        # FIX: No longer silently swallowed — print full traceback and exit 1
-        print(f"\n{Fore.RED}[ERROR] Prediction batch failed: {e}{Style.RESET_ALL}")
-        import traceback; traceback.print_exc()
-        print(f"\n{Fore.RED}Cached predictions were cleared but not repopulated.")
-        print(f"The API will fall back to live inference — run this script again to fix.{Style.RESET_ALL}")
-        sys.exit(1)
-
-    print(f"\n{Fore.CYAN}Step 4/4 — Pre-computing 30-day validation histories …{Style.RESET_ALL}")
-    try:
-        from shared.ml.training import COIN_CONFIG, COINS
-        for coin in COINS:
-            meta = registry.get_latest_version_metadata(coin)
-            if not meta:
-                print(f"  {Fore.YELLOW}{coin}: skipped (no model metadata){Style.RESET_ALL}")
-                continue
-
-            df = fetch_klines(f"{coin}USDT", limit=max(COIN_CONFIG.get(coin, {}).get("limit", 500), 230))
-            if df is None or ("source" in df.columns and str(df["source"].iloc[0]).lower() == "mock"):
-                print(f"  {Fore.YELLOW}{coin}: skipped (live market data unavailable){Style.RESET_ALL}")
-                continue
-
-            history = execute_rolling_backtest(coin, df, days=30)
-            if isinstance(history, list) and history:
-                registry.save_cached_validation(coin, 30, meta["version"], history)
-                print(f"  {Fore.GREEN}{coin}: cached {len(history)} validation point(s){Style.RESET_ALL}")
-            else:
-                print(f"  {Fore.YELLOW}{coin}: skipped ({history or 'no validation data'}){Style.RESET_ALL}")
-    except Exception as e:
-        print(f"{Fore.YELLOW}  [WARN] Validation precompute failed: {e}{Style.RESET_ALL}")
-
-    print("\n" + "-" * 40)
-    print(f"{Fore.GREEN}{Style.BRIGHT}SUCCESS — models, predictions, and validation caches are ready!{Style.RESET_ALL}")
-    
-    # NEW: Flush validation/prediction caches so the dashboard updates immediately
-    try:
-        from shared.ml.cache import cache
-        n_val = cache.flush_pattern("validate:")
-        n_pred = cache.flush_pattern("pred:")
-        print(f"{Fore.CYAN}  Flushed {n_val} validation and {n_pred} prediction cache key(s){Style.RESET_ALL}")
-    except Exception as e:
-        print(f"{Fore.YELLOW}  [WARN] Cache flush failed: {e}{Style.RESET_ALL}")
-
-    print(f"{Fore.CYAN}Deploy your API — first request will be served from cache.{Style.RESET_ALL}\n")
+    failed = [coin for coin, result in results.items() if "error" in result]
+    if failed:
+        raise SystemExit(f"Training failed for: {', '.join(failed)}")
 
 
 if __name__ == "__main__":
-    run_local_training()
+    main()
