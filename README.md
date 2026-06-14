@@ -155,4 +155,4 @@ Built by [Aarav Kashyap](https://x.com/KashyapAarav_)
 
 ### Portfolio
 
-See more of my work at [https://www.aaravkashyap.live/](https://www.aaravkashyap.live/)..
+See more of my work at [https://www.aaravkashyap.live/](https://www.aaravkashyap.live/).
