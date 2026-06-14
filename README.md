@@ -149,6 +149,10 @@ CryptoQuant is an educational ML project. It is not financial advice, and its fo
 
 Built by [Aarav Kashyap](https://x.com/KashyapAarav_)
 
-</div>---
+</div>
+
+---
+
 ### Portfolio
-See more of my work at [https://www.aaravkashyap.live/](https://www.aaravkashyap.live/).
+
+See more of my work at [https://www.aaravkashyap.live/](https://www.aaravkashyap.live/)..
